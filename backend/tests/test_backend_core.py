@@ -482,3 +482,24 @@ async def test_barrier_that_does_not_close_becomes_a_draft_for_concierge(monkeyp
     reg.inject("barrier", "jam", 0)
     reg.step_all()
     assert reg.get("barrier").state()["alarm"] == 0 and reg.get("barrier").state()["state"] == 0
+
+
+@pytest.mark.asyncio
+async def test_resident_report_on_building_device_goes_to_concierge_once(monkeypatch):
+    monkeypatch.setattr(ai, "jev", no_jev)
+    _, _, tickets, engine, disp = dispatch_setup()
+    engine.dispatch_hook = disp.from_rule
+
+    def report(text):
+        return Rule(title="Шлагбаум не закрывается", owner="resident", description=f"Создано из текста: «{text}»",
+                    trigger=Trigger(device_id=NOW, signal=NOW, value=1),
+                    actions=[Dispatch(device_id="barrier", note="закрывается не до конца")])
+
+    await engine.execute(report("шлагбаум не закрывается до конца"), None)
+    t = next(iter(tickets.tickets.values()))
+    assert t.scope == "building" and t.needs_confirmation == "concierge" and t.category == "access"
+    assert t.device_id == "barrier" and t.status == "draft"
+    assert {n["target"] for n in engine.notifications} == {"concierge", "resident"}
+
+    await engine.execute(report("шлагбаум опять не закрылся"), None)
+    assert len(tickets.tickets) == 1 and "ещё одно сообщение" in t.description
