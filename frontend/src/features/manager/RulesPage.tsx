@@ -11,7 +11,8 @@ import { RuleEditorModal, newRule } from './RuleEditorModal'
 type Editing = { rule: Rule; isNew: boolean } | null
 
 export function RulesPage({ devices }: { devices: Device[] }) {
-  const rules = useStore((state) => state.rules)
+  // У УК нет доступа к правилам жителей: в кабинете только правила дома.
+  const rules = useStore((state) => state.rules).filter((rule) => rule.owner === 'uk')
   const [editing, setEditing] = useState<Editing>(null)
   const [confirm, setConfirm] = useState('')
 
@@ -51,10 +52,7 @@ export function RulesPage({ devices }: { devices: Device[] }) {
               <header className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-[14px] font-medium">{rule.title}</p>
-                  <p className="text-[12px] text-ink-mute">
-                    {rule.owner === 'uk' ? `УК · приоритет ${rule.priority}` : 'правило жителя'} ·{' '}
-                    {rule.scope === 'building' ? 'дом' : 'квартира'}
-                  </p>
+                  <p className="text-[12px] text-ink-mute">приоритет {rule.priority}</p>
                 </div>
                 <Toggle checked={rule.enabled} onChange={(next) => void toggle(rule, next)} label="Включить правило" />
               </header>

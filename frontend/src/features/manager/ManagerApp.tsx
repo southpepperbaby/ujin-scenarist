@@ -17,9 +17,9 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
     title: 'Ассистент',
     subtitle: 'Вопрос о доме, разовая команда или правило уровня дома в одном окне',
   },
-  '/uk/incidents': { title: 'Инциденты', subtitle: 'Уровни: 0 журнал, 3 критично, заявка сразу' },
+  '/uk/incidents': { title: 'Инциденты', subtitle: 'События, имеющие в разной степени значение' },
   '/uk/tickets': { title: 'Заявки', subtitle: 'Очередь подрядчиков, сроки по договору и источник заявки' },
-  '/uk/devices': { title: 'Устройства', subtitle: 'Датчики дома и квартиры: добавить, изменить, создать свой тип' },
+  '/uk/devices': { title: 'Устройства', subtitle: 'Общедомовое оборудование: добавить, изменить, создать свой тип' },
   '/uk/rules': { title: 'Правила', subtitle: 'Сценарии «когда, если, то»: включить, изменить, создать новый' },
   '/uk/sandbox': { title: 'Песочница', subtitle: 'Эмуляторы Ujin: ручные воздействия и живая шина событий' },
 }
@@ -32,6 +32,7 @@ type ManagerAppProps = {
 export function ManagerApp({ path, demo }: ManagerAppProps) {
   const devices = useStore((state) => state.devices)
   const events = useStore((state) => state.events)
+  const telemetry = useStore((state) => state.telemetry)
   const dispatch = useDispatchData(demo)
   const head = TITLES[path] ?? TITLES['/uk']
   const openIncidents = dispatch.tickets.filter((ticket) => ticket.status === 'draft').length
@@ -39,10 +40,10 @@ export function ManagerApp({ path, demo }: ManagerAppProps) {
   let page
   if (path === '/uk/assistant') page = <AssistantPage />
   else if (path === '/uk/incidents') page = <IncidentsPage dispatch={dispatch} />
-  else if (path === '/uk/tickets') page = <TicketsPage dispatch={dispatch} />
+  else if (path === '/uk/tickets') page = <TicketsPage dispatch={dispatch} devices={devices} />
   else if (path === '/uk/devices') page = <DevicesPage devices={devices} />
   else if (path === '/uk/rules') page = <RulesPage devices={devices} />
-  else if (path === '/uk/sandbox') page = <SandboxPage devices={devices} events={events} />
+  else if (path === '/uk/sandbox') page = <SandboxPage devices={devices} events={events} telemetry={telemetry} />
   else page = <DashboardPage devices={devices} dispatch={dispatch} />
 
   return (

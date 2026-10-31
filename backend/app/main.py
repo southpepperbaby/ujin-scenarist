@@ -10,7 +10,7 @@ import json
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import ai, config, gherkin, nl
 from .bus import EventBus
@@ -27,8 +27,8 @@ from . import mock_contractor
 from .mock_contractor import router as mock_contractor_router
 from .persistence import Persistence
 from .storage import Storage
-from .tickets import (CATEGORY_TITLES, STATUS_TITLES, Contractor, TicketService, verify, visible_to,
-                      visible_to_role)
+from .tickets import (CATEGORY_TITLES, STATUS_TITLES, Category, Contractor, Ticket, TicketService, verify,
+                      visible_to, visible_to_role)
 from .ujin_bridge import UjinBridge
 
 bus = EventBus()
@@ -52,9 +52,12 @@ async def lifespan(_app: FastAPI):
     for device_id, family, title, room, scope, kwargs in SEED_DEVICES:
         if device_id not in registry.devices:
             registry.create(family, title=title, room=room, scope=scope, device_id=device_id, **kwargs)
-    if not store.rules:
-        for rule in seed_rules():
+    # Правила из сида выдаём один раз: новые доходят до живой базы, удалённые в UI не воскресают.
+    seeded = set(storage.get("settings", "seeded_rules", []))
+    for rule in seed_rules():
+        if rule.id not in seeded and rule.id not in store.rules:
             store.put(rule)
+    storage.put("settings", "seeded_rules", sorted(seeded | {rule.id for rule in seed_rules()}))
     tasks = [asyncio.create_task(c) for c in (
         registry.run(), engine.run(), dispatcher.run(), ujin.run(), persistence.run(), ai.keep_warm())]
     yield
@@ -63,7 +66,7 @@ async def lifespan(_app: FastAPI):
     persistence.snapshot()
 
 
-app = FastAPI(title="Сценарист API", lifespan=lifespan)
+app = FastAPI(title="HOMIE AI API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(mock_contractor_router)
 
@@ -395,6 +398,29 @@ def incidents(limit: int = 50, role: str | None = None):
 def list_tickets(role: str | None = None):
     rows = sorted(tickets.tickets.values(), key=lambda t: t.created)
     return [t.model_dump(mode="json") for t in rows if role is None or visible_to(t, role)]
+
+
+class TicketCreate(BaseModel):
+    """Ручная заявка из кабинета УК: общедомовая, подрядчик по категории, как у автодиспетчера."""
+    category: Category
+    level: int = Field(1, ge=0, le=3)
+    title: str = Field(min_length=1)
+    description: str = ""
+    device_id: str | None = None
+    send: bool = True                    # сразу подрядчику или черновиком
+
+
+@app.post("/api/tickets")
+async def create_ticket(body: TicketCreate):
+    if body.device_id and body.device_id not in registry.devices:
+        raise HTTPException(404, f"device not found: {body.device_id}")
+    ticket = Ticket(
+        category=body.category, level=body.level, title=body.title.strip(), description=body.description.strip(),
+        device_id=body.device_id, scope="building", address="ЖК «Северный», корп. 1",
+        status="new" if body.send else "draft", reasoning=["Заявку создала УК вручную."],
+    )
+    t = await tickets.create(ticket, actor="УК")
+    return t.model_dump(mode="json")
 
 
 class TicketMove(BaseModel):

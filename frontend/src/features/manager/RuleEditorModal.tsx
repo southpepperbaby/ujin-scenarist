@@ -118,12 +118,6 @@ export function RuleEditorModal({ rule, isNew, onClose }: RuleEditorModalProps) 
           onChange={(event) => patch({ title: event.target.value })}
         />
         <div className="flex flex-wrap items-end gap-3">
-          <Field label="Где действует">
-            <SelectInput value={r.scope} onChange={(event) => patch({ scope: event.target.value as Rule['scope'] })}>
-              <option value="building">дом</option>
-              <option value="apartment">квартира</option>
-            </SelectInput>
-          </Field>
           <Field label="Приоритет" hint="Больше значит важнее">
             <TextInput
               type="number"

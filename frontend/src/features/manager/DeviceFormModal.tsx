@@ -2,12 +2,11 @@ import { useState } from 'react'
 
 import { api, type Device, type Family } from '../../api'
 import { Button } from '../../shared/ui/Button'
-import { ErrorNote, Field, Segmented, SelectInput, TextInput } from '../../shared/ui/Fields'
+import { ErrorNote, Field, SelectInput, TextInput } from '../../shared/ui/Fields'
 import { Modal } from '../../shared/ui/Modal'
 import { Toggle } from '../../shared/ui/Toggle'
 import { useStore } from '../../store'
 
-type Scope = Device['scope']
 
 type DeviceFormModalProps = {
   /** Устройство для правки. Без него окно создаёт новое. */
@@ -17,10 +16,8 @@ type DeviceFormModalProps = {
   onNewType: () => void
 }
 
-const SCOPES: { value: Scope; label: string }[] = [
-  { value: 'apartment', label: 'Квартира' },
-  { value: 'building', label: 'Общедомовое' },
-]
+/** Кабинет УК заводит только общедомовое оборудование: квартирное принадлежит жителю. */
+const SCOPE: Device['scope'] = 'building'
 
 export function DeviceFormModal({ device, families, onClose, onNewType }: DeviceFormModalProps) {
   const editing = Boolean(device)
@@ -28,7 +25,6 @@ export function DeviceFormModal({ device, families, onClose, onNewType }: Device
   const [title, setTitle] = useState(device?.title ?? families[0]?.title ?? '')
   const [titleTouched, setTitleTouched] = useState(editing)
   const [room, setRoom] = useState(device?.room ?? '')
-  const [scope, setScope] = useState<Scope>(device?.scope ?? 'apartment')
   const [online, setOnline] = useState(device?.online ?? true)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -59,8 +55,8 @@ export function DeviceFormModal({ device, families, onClose, onNewType }: Device
   const save = () =>
     run(() =>
       device
-        ? api.patchDevice(device.id, { title: title.trim(), room: room.trim(), scope, online })
-        : api.createDevice({ family, title: title.trim(), room: room.trim(), scope }),
+        ? api.patchDevice(device.id, { title: title.trim(), room: room.trim(), scope: SCOPE, online })
+        : api.createDevice({ family, title: title.trim(), room: room.trim(), scope: SCOPE }),
     )
 
   return (
@@ -120,7 +116,7 @@ export function DeviceFormModal({ device, families, onClose, onNewType }: Device
           <TextInput
             className="w-full"
             value={title}
-            placeholder="Например, датчик протечки на кухне"
+            placeholder="Например, шлагбаум у въезда"
             onChange={(event) => {
               setTitle(event.target.value)
               setTitleTouched(true)
@@ -132,15 +128,9 @@ export function DeviceFormModal({ device, families, onClose, onNewType }: Device
           <TextInput
             className="w-full"
             value={room}
-            placeholder="Кухня, ванная, подвал"
+            placeholder="Двор, подъезд, подвал"
             onChange={(event) => setRoom(event.target.value)}
           />
-        </Field>
-
-        <Field label="Где стоит" hint="Общедомовое оборудование видит только УК, квартирное принадлежит жителю">
-          <div>
-            <Segmented value={scope} options={SCOPES} onChange={setScope} />
-          </div>
         </Field>
 
         {editing && (

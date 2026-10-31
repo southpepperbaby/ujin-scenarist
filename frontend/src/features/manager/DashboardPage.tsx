@@ -1,7 +1,6 @@
 import type { Device } from '../../api'
 import { isAlarm } from '../../shared/device-values'
 import type { DispatchData } from '../../shared/use-dispatch'
-import { Icon } from '../../shared/ui/Icon'
 import { IncidentRow } from './IncidentRow'
 import { KpiCard } from './KpiCard'
 import { Panel } from './Panel'
@@ -75,33 +74,14 @@ export function DashboardPage({ devices, dispatch }: DashboardPageProps) {
           )}
         </Panel>
 
-        <div className="space-y-5">
-          <Panel title="Очередь заявок" action={{ label: 'Все заявки', to: '/uk/tickets' }}>
-            {tickets.slice(-PREVIEW).reverse().map((ticket) => (
-              <TicketRow key={ticket.id} ticket={ticket} categories={categories} onChanged={reload} />
-            ))}
-            {tickets.length === 0 && (
-              <p className="px-5 py-8 text-center text-[13px] text-ink-mute">Заявок нет.</p>
-            )}
-          </Panel>
-
-          <Panel title="Как решает автодиспетчер">
-            <div className="space-y-3 px-5 py-4 text-[13px] text-ink-dim">
-              <p className="flex items-start gap-2">
-                <Icon name="spark" size={15} className="mt-0.5 shrink-0 text-accent" />
-                Известные аварии решает таблица, без ИИ. Jev подключается к неизвестным неисправностям и сочетаниям тревог.
-              </p>
-              <p className="flex items-start gap-2">
-                <Icon name="shield" size={15} className="mt-0.5 shrink-0 text-ok" />
-                Гейты: защита от дребезга, дедупликация по устройству, лимит заявок в сутки.
-              </p>
-              <p className="flex items-start gap-2">
-                <Icon name="clock" size={15} className="mt-0.5 shrink-0 text-sev-minor" />
-                Уровень 3: отправка сразу. Уровни 1-2: черновик и подтверждение одной кнопкой.
-              </p>
-            </div>
-          </Panel>
-        </div>
+        <Panel title="Очередь заявок" action={{ label: 'Все заявки', to: '/uk/tickets' }}>
+          {tickets.slice(-PREVIEW).reverse().map((ticket) => (
+            <TicketRow key={ticket.id} ticket={ticket} categories={categories} onChanged={reload} />
+          ))}
+          {tickets.length === 0 && (
+            <p className="px-5 py-8 text-center text-[13px] text-ink-mute">Заявок нет.</p>
+          )}
+        </Panel>
       </div>
     </div>
   )
