@@ -121,6 +121,8 @@ export type BusEvent = {
   target?: string
   level?: string
   id?: string
+  incident_id?: string
+  ticket_id?: string
 }
 
 export type IncidentVerdict = {

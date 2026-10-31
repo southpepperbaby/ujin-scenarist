@@ -318,8 +318,11 @@ class Dispatcher:
 
     async def from_rule(self, rule, action, run: dict) -> dict:
         device_id = action.device_id or _rule_device(rule)
-        if device_id is None or device_id not in self.registry.devices:
-            inc = await self.manual(rule, action)
+        if device_id not in self.registry.devices:
+            device_id = None
+        if rule.trigger.device_id == NOW:
+            # Человек сам сообщил о проблеме или попросил мастера: датчика нет, решает тот, кто отвечает.
+            inc = await self.manual(rule, action, device_id)
         else:
             managed = self.registry.get(device_id)
             trig = rule.trigger
@@ -330,27 +333,51 @@ class Dispatcher:
                                     forced_category=action.category, note=action.note)
         return {"incident_id": inc["id"], "decision": inc["decision"], "ticket_id": inc["ticket_id"]}
 
-    async def manual(self, rule, action) -> dict:
-        """Просьба «вызови сантехника» без устройства: черновик заявки, отправляет тот, кто попросил."""
-        category = action.category or "general"
-        scope = rule.scope
-        title = action.note or f"Нужен мастер: {CATEGORY_TITLES[category].lower()}"
+    async def manual(self, rule, action, device_id: str | None = None) -> dict:
+        """Просьба «вызови сантехника» или сообщение «шлагбаум не закрывается до конца»: черновик заявки.
+
+        Общедомовое устройство решает УК: черновик уходит консьержу, даже если написал житель, а житель
+        получает ответ, что сообщение передано. Если заявка по устройству уже открыта, новое сообщение
+        дописывается в неё: десять жителей про один шлагбаум дают одну заявку.
+        """
+        managed = self.registry.devices.get(device_id) if device_id else None
+        scope = managed.scope if managed else rule.scope
+        family_category = FALLBACK.get(managed.family, ("general", 1))[0] if managed else "general"
+        category = action.category or family_category
+        what = action.note or f"нужен мастер: {CATEGORY_TITLES[category].lower()}"
+        title = f"{managed.title}: {what}" if managed else what[:1].upper() + what[1:]
+        reporter = "житель" if rule.owner == "resident" else "УК"
         inc = {
-            "id": "I-" + uuid.uuid4().hex[:6].upper(), "ts": time.time(), "device_id": None,
-            "device_title": None, "room": None, "scope": scope, "signal": None, "title": title,
-            "status": "confirmed", "verdict": None, "decision": None, "ticket_id": None, "rule_id": rule.id,
-            "reasoning": [f"Мастера попросили напрямую: «{rule.title}». Устройство не указано."],
+            "id": "I-" + uuid.uuid4().hex[:6].upper(), "ts": time.time(), "device_id": device_id,
+            "device_title": managed.title if managed else None, "room": managed.room if managed else None,
+            "scope": scope, "signal": None, "title": title, "status": "confirmed", "verdict": None,
+            "decision": None, "ticket_id": None, "rule_id": rule.id,
+            "reasoning": [f"Сообщил {reporter}: «{rule.description.removeprefix('Создано из текста: ') or rule.title}»."],
         }
         self.incidents[inc["id"]] = inc
-        contractor = self.tickets.contractor_for(category)
         confirm_by = "resident" if scope == "apartment" else "concierge"
+
+        open_ticket = self.tickets.open_for_device(device_id) if device_id else None
+        if open_ticket:
+            inc["reasoning"].append(f"По устройству уже открыта заявка {open_ticket.id}: дописали сообщение туда.")
+            await self.tickets.attach(open_ticket, f"ещё одно сообщение: {what}", device_id, open_ticket.level,
+                                      send=False)
+            if rule.owner == "resident" and scope == "building":
+                self.notify("resident", f"Спасибо, УК уже знает о проблеме: «{managed.title}», заявка {open_ticket.id}.",
+                            "info", extra={"ticket_id": open_ticket.id})
+            return self._decide(inc, "merged", ticket=open_ticket)
+
+        contractor = self.tickets.contractor_for(category)
         ticket = Ticket(category=category, level=1, title=title, description=title + ".", scope=scope,
-                        incident_id=inc["id"], rule_id=rule.id, contractor_id=contractor.id,
+                        device_id=device_id, incident_id=inc["id"], rule_id=rule.id, contractor_id=contractor.id,
                         needs_confirmation=confirm_by, reasoning=inc["reasoning"])
-        inc["reasoning"].append("Плановый вызов: готовый черновик, отправка одной кнопкой.")
+        inc["reasoning"].append("Датчик тревогу не поднял, поэтому решает человек: готовый черновик, отправка одной кнопкой.")
         await self.tickets.create(ticket)
         self.notify(confirm_by, f"{title}. Заявка для «{contractor.name}» готова: отправить или отменить?",
-                    "info", extra={"ticket_id": ticket.id})
+                    "info" if confirm_by == "resident" else "warning", extra={"ticket_id": ticket.id})
+        if confirm_by == "concierge" and rule.owner == "resident":
+            self.notify("resident", f"Передали в УК: «{title}». Консьерж отправит мастера.", "info",
+                        extra={"ticket_id": ticket.id})
         return self._decide(inc, "draft", ticket=ticket)
 
 
