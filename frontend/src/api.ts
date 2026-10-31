@@ -325,13 +325,27 @@ export const api = {
   executeNow: (rule: Rule) => json<RunRecord>('/api/nl/execute', { method: 'POST', ...body(rule) }),
 }
 
-export function openEvents(onEvent: (e: BusEvent) => void): () => void {
+/** onReopen вызывается при каждом переподключении, кроме первого: данные за время обрыва надо подтянуть заново. */
+export function openEvents(onEvent: (e: BusEvent) => void, onReopen?: () => void): () => void {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   let ws: WebSocket | null = null
   let closed = false
+  let opened = false
   const connect = () => {
     ws = new WebSocket(`${proto}://${location.host}/ws`)
-    ws.onmessage = (m) => onEvent(JSON.parse(m.data))
+    ws.onopen = () => {
+      if (opened) onReopen?.()
+      opened = true
+    }
+    ws.onmessage = (m) => {
+      let event: BusEvent
+      try {
+        event = JSON.parse(m.data)
+      } catch {
+        return // битый кадр пропускаем
+      }
+      onEvent(event)
+    }
     ws.onclose = () => {
       if (!closed) setTimeout(connect, 1000)
     }
