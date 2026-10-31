@@ -75,6 +75,8 @@ async def test_offline_device_retries_then_reports_error():
     valve = run["actions"][0]
     assert valve["status"] == "error" and valve["attempts"] == 3
     assert run["actions"][1]["status"] == "ok"  # уведомление ушло, несмотря на сбой клапана
+    note = engine.notifications[-1]
+    assert "не выполнено" in note["message"] and note["level"] == "critical"
     retries = [e for e in bus.history if e.kind == "rule" and e.data.get("phase") == "retry"]
     assert len(retries) == 3
 
