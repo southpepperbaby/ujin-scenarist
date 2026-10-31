@@ -10,3 +10,4 @@ build/
 secrets/
 *.pdf
 token.txt
+backend/data/
