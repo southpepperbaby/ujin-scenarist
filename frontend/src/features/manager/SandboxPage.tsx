@@ -20,34 +20,38 @@ export function SandboxPage({ devices, events, telemetry }: SandboxPageProps) {
   const visible = devicesFor(devices, flat)
 
   return (
-    // Строка грида не растёт по содержимому: обе колонки листаются сами, лента — независимо.
-    <div className="grid h-full grid-cols-[1fr_380px] grid-rows-[minmax(0,1fr)]">
-      <div className="scroll-slim min-h-0 overflow-y-auto px-7 py-6">
-        <div className="mb-5 grid gap-4 md:grid-cols-2">
-          <Dropdown
-            label="ЖИЛОЙ КОМПЛЕКС"
-            icon="building"
-            value={complexId}
-            options={COMPLEXES.map((item) => ({ value: item.id, label: item.title }))}
-            onChange={(next) => {
-              setComplexId(next)
-              setFlat('all')
-            }}
-          />
-          <Dropdown label="КВАРТИРА" icon="home" value={flat} options={flatOptions(complex)} onChange={setFlat} />
+    // Раскладка считается от ширины самой страницы (@container), а не окна: сайдбар её съедает.
+    // Узко — лента уходит под устройства; широко — справа. Строки не растут по содержимому,
+    // поэтому обе части листаются сами.
+    <div className="@container h-full">
+      <div className="grid h-full grid-rows-[minmax(0,1fr)_280px] @4xl:grid-cols-[minmax(0,1fr)_340px] @4xl:grid-rows-[minmax(0,1fr)] @6xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="@container scroll-slim min-h-0 overflow-y-auto px-7 py-6">
+          <div className="mb-5 grid gap-4 @xl:grid-cols-2">
+            <Dropdown
+              label="ЖИЛОЙ КОМПЛЕКС"
+              icon="building"
+              value={complexId}
+              options={COMPLEXES.map((item) => ({ value: item.id, label: item.title }))}
+              onChange={(next) => {
+                setComplexId(next)
+                setFlat('all')
+              }}
+            />
+            <Dropdown label="КВАРТИРА" icon="home" value={flat} options={flatOptions(complex)} onChange={setFlat} />
+          </div>
+          <div className="grid gap-4 @2xl:grid-cols-2 @6xl:grid-cols-3">
+            {visible.map((device) => (
+              <DeviceCard key={device.id} device={device} controls />
+            ))}
+          </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 2xl:grid-cols-3">
-          {visible.map((device) => (
-            <DeviceCard key={device.id} device={device} controls />
-          ))}
-        </div>
+        <aside className="flex min-h-0 flex-col border-t border-line bg-surface @4xl:border-t-0 @4xl:border-l">
+          <h2 className="border-b border-line px-5 py-3.5 text-sm font-semibold">Лента событий</h2>
+          <div className="min-h-0 flex-1">
+            <EventFeed events={events} telemetry={telemetry} devices={devices} />
+          </div>
+        </aside>
       </div>
-      <aside className="flex min-h-0 flex-col border-l border-line bg-surface">
-        <h2 className="border-b border-line px-5 py-3.5 text-sm font-semibold">Лента событий</h2>
-        <div className="min-h-0 flex-1">
-          <EventFeed events={events} telemetry={telemetry} devices={devices} />
-        </div>
-      </aside>
     </div>
   )
 }
