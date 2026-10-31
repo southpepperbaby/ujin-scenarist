@@ -222,6 +222,16 @@ class Dispatcher:
         if level < 3 and not _in_hours(contractor.hours):
             why.append(f"Подрядчик работает {contractor.hours}, заявку возьмут в рабочее время.")
 
+        related = self.tickets.open_for_contractor(contractor.id, managed.scope)
+        if related:
+            why.append(f"У «{contractor.name}» уже открыта заявка {related.id} по этому адресу: "
+                       f"дописываем туда, второй выезд не нужен.")
+            was_draft = related.status == "draft"
+            await self.tickets.attach(related, title, device_id, level, send=decision == "auto")
+            if was_draft and related.status == "new":
+                self._notify_people(managed, related, "auto")
+            return self._decide(inc, "merged", ticket=related)
+
         await self.tickets.create(ticket)
         self._notify_people(managed, ticket, decision)
         return self._decide(inc, decision, ticket=ticket)
@@ -316,7 +326,7 @@ class Dispatcher:
 
     def _decide(self, inc: dict, decision: str, ticket: Ticket | None = None) -> dict:
         inc["decision"] = decision
-        inc["status"] = "dispatched" if ticket and decision != "duplicate" else "logged"
+        inc["status"] = "dispatched" if ticket and decision not in ("duplicate", "merged") else "logged"
         inc["ticket_id"] = ticket.id if ticket else None
         self._emit(inc)
         return inc
@@ -340,7 +350,8 @@ class Dispatcher:
 
 def _decision_title(inc: dict) -> str:
     return {
-        None: "обрабатываем", "duplicate": "заявка уже открыта", "limit": "лимит автозаявок",
+        None: "обрабатываем", "duplicate": "заявка уже открыта",
+        "merged": "добавлено в открытую заявку", "limit": "лимит автозаявок",
         "log": "записано в журнал", "draft": "черновик заявки ждёт подтверждения",
         "auto": "заявка отправлена",
     }.get(inc["decision"], inc["decision"])
