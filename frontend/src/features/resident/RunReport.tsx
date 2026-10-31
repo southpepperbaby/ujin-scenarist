@@ -50,7 +50,7 @@ export function RunReport({ report, devices }: RunReportProps) {
 
       {!report.lint.ok && (
         <p className="mt-3 rounded-xl bg-sev-crit-soft px-3 py-2 text-[12px] text-sev-crit">
-          Линтер нашёл ошибок: {report.lint.errors}
+          Линтер нашёл ошибок: {report.lint.errors ?? report.lint.issues.length}
         </p>
       )}
     </div>

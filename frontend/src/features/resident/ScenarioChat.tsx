@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { navigate } from '../../app/routing'
-import { api, type CompiledRule } from '../../api'
+import { api, type Compiled } from '../../api'
 import { useStore } from '../../store'
 import { Button } from '../../shared/ui/Button'
 import { Glass } from '../../shared/ui/Glass'
@@ -28,7 +28,7 @@ function Bubble({ children, mine = false }: { children: React.ReactNode; mine?: 
   )
 }
 
-function LinterReport({ result }: { result: CompiledRule }) {
+function LinterReport({ result }: { result: Compiled }) {
   const lint = result.lint
   if (!lint) return null
   const tone = lint.ok ? 'text-ok' : 'text-sev-crit'
@@ -40,8 +40,8 @@ function LinterReport({ result }: { result: CompiledRule }) {
       </p>
       <p className="mt-2 text-[13px] text-ink-dim">
         {lint.ok
-          ? `Ошибок нет, предупреждений ${lint.warnings}.`
-          : `Ошибок ${lint.errors}, предупреждений ${lint.warnings}.`}
+          ? `Ошибок нет, предупреждений ${lint.warnings ?? 0}.`
+          : `Ошибок ${lint.errors ?? 0}, предупреждений ${lint.warnings ?? 0}.`}
       </p>
       <ul className="mt-2 space-y-1">
         {lint.issues.map((issue) => (
@@ -60,7 +60,7 @@ export function ScenarioChat() {
   const devices = useStore((state) => state.devices)
   const [text, setText] = useState('')
   const [sent, setSent] = useState<string | null>(null)
-  const [result, setResult] = useState<CompiledRule | null>(null)
+  const [result, setResult] = useState<Compiled | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 

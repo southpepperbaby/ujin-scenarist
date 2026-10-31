@@ -114,7 +114,8 @@ class DeviceRegistry:
     # ---------- жизненный цикл устройств ----------
 
     def create(self, family: str, title: str | None = None, room: str = "",
-               scope: str = "apartment", device_id: str | None = None, **kwargs) -> Managed:
+               scope: str = "apartment", device_id: str | None = None, binding: dict | None = None,
+               serial: str | None = None, **kwargs) -> Managed:
         if family not in REGISTRY:
             raise KeyError(f"unknown family: {family}")
         n = next(self._seq)
@@ -122,8 +123,11 @@ class DeviceRegistry:
         if device_id in self.devices:
             raise ValueError(f"device exists: {device_id}")
         cls = REGISTRY[family]
-        binding = self._take_binding(family)
-        serial = binding["sn"] if binding else str(1000 + n)
+        if binding is not None:                       # восстановление: забираем ту же привязку из пула
+            self._ujin_pool = [r for r in self._ujin_pool if r.get("sn") != binding.get("sn")]
+        else:
+            binding = self._take_binding(family)
+        serial = serial or (binding["sn"] if binding else str(1000 + n))
         logger = lambda msg, _id=device_id: self.bus.emit("log", _id, message=str(msg))  # noqa: E731
         device = cls(serial=serial, client=None, logger=logger, **kwargs)
         managed = Managed(id=device_id, family=family, title=title or cls.title,
@@ -196,6 +200,34 @@ class DeviceRegistry:
             managed.scope = scope
         self.bus.emit("device", device_id, action="updated", device=managed.to_dict())
         return managed
+
+    # ---------- память между перезапусками ----------
+
+    def snapshot(self) -> list[dict]:
+        """Всё, что нужно, чтобы поднять устройства как были: метаданные, привязку, значения, физику."""
+        out = []
+        for m in self.devices.values():
+            inner = {k: v for k, v in vars(m.device).items()
+                     if k.startswith("_") and isinstance(v, (int, float, str, bool, type(None)))}
+            out.append({"id": m.id, "family": m.family, "title": m.title, "room": m.room, "scope": m.scope,
+                        "ujin": m.ujin, "serial": m.device.serial, "online": m.online, "params": m.params,
+                        "state": m.state(), "inner": inner})
+        return out
+
+    def restore(self, rows: list[dict]) -> None:
+        for row in rows:
+            if row["family"] not in REGISTRY or row["id"] in self.devices:
+                continue
+            m = self.create(row["family"], title=row["title"], room=row["room"], scope=row["scope"],
+                            device_id=row["id"], binding=row.get("ujin"), serial=row.get("serial"),
+                            **row.get("params", {}))
+            for name, value in row.get("state", {}).items():
+                if name in m.device.signals:
+                    m.device.signals[name].value = value
+            for k, v in row.get("inner", {}).items():
+                if hasattr(m.device, k):
+                    setattr(m.device, k, v)
+            m.online = row.get("online", True)
 
     # ---------- симуляция ----------
 

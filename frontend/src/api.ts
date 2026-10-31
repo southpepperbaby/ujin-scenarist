@@ -153,8 +153,6 @@ export type Contractor = {
 
 export type Dictionaries = { categories: Record<string, string>; statuses: Record<string, string> }
 
-export type LintIssue = { level: string; code: string; message: string }
-export type LintReport = { ok: boolean; errors: number; warnings: number; issues: LintIssue[] }
 
 export type RunAction = {
   type: 'set_signal' | 'notify' | 'dispatch' | string
@@ -182,15 +180,7 @@ export type SimulateReport = {
   sim_time: string | null
   runs: RunRecord[]
   notifications: Notification[]
-  lint: LintReport
-}
-
-export type CompiledRule = {
-  intent: { intent: string; confidence?: number }
-  rule: Rule | null
-  answer?: string
-  lint?: LintReport
-  explain?: string
+  lint: Lint
 }
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
@@ -213,6 +203,23 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
 
 const body = (data: unknown) => ({ body: JSON.stringify(data) })
 
+export type Role = 'resident' | 'uk'
+
+export type LintIssue = { level: 'error' | 'warning' | 'info'; code: string; message: string }
+export type Lint = { ok: boolean; errors?: number; warnings?: number; issues: LintIssue[] }
+
+export type Compiled = {
+  intent: { intent: 'rule' | 'command' | 'question'; confidence: number }
+  text?: string
+  rule: Rule | null
+  explanation?: string
+  lint?: Lint
+  answer?: string
+  error?: string
+}
+
+export type Confirmed = { kind: 'rule' | 'command'; explanation: string; rule?: Rule; lint?: Lint }
+
 export const api = {
   families: () => json<Family[]>('/api/families'),
   devices: () => json<Device[]>('/api/devices'),
@@ -233,6 +240,10 @@ export const api = {
   runRule: (id: string) => json(`/api/rules/${id}/run`, { method: 'POST' }),
   exportRule: (id: string) => json<Record<string, unknown>>(`/api/rules/${id}/ujin`),
 
+  compile: (text: string, role: Role, previous?: string) =>
+    json<Compiled>('/api/nl/compile', { method: 'POST', ...body({ text, role, previous }) }),
+  confirm: (rule: Rule, role: Role) => json<Confirmed>('/api/nl/confirm', { method: 'POST', ...body({ rule, role }) }),
+
   notifications: (target?: string) =>
     json<Notification[]>(`/api/notifications?limit=100${target ? `&target=${target}` : ''}`),
   events: (limit = 100) => json<BusEvent[]>(`/api/events?limit=${limit}`),
@@ -245,12 +256,10 @@ export const api = {
   contractors: () => json<Contractor[]>('/api/contractors'),
   dictionaries: () => json<Dictionaries>('/api/dictionaries'),
 
-  lint: (rule: Rule) => json<LintReport>('/api/lint', { method: 'POST', ...body(rule) }),
+  lint: (rule: Rule) => json<Lint>('/api/lint', { method: 'POST', ...body(rule) }),
   simulate: (rule: Rule, ticks = 15) =>
     json<SimulateReport>('/api/simulate', { method: 'POST', ...body({ rule, ticks }) }),
   explainRule: (id: string) => json<{ text: string }>(`/api/rules/${id}/explain`),
-  compile: (text: string, role: 'resident' | 'uk' = 'resident') =>
-    json<CompiledRule>('/api/nl/compile', { method: 'POST', ...body({ text, role }) }),
   executeNow: (rule: Rule) => json<RunRecord>('/api/nl/execute', { method: 'POST', ...body(rule) }),
 }
 

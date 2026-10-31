@@ -9,44 +9,52 @@ import json
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-from . import ai, config, nl
+from . import ai, config, gherkin, nl
 from .bus import EventBus
-from .dispatcher import Dispatcher
+from .dispatcher import Dispatcher, Policy
 from .emu import REGISTRY, DeviceRegistry, family_info
 from .engine import Engine
 from .linter import lint, summary
 from .rules import Rule, RuleStore, to_ujin_autoscript
 from .seed import SEED_DEVICES, seed_rules
 from .simulate import simulate
+from . import mock_contractor
 from .mock_contractor import router as mock_contractor_router
-from .tickets import CATEGORY_TITLES, STATUS_TITLES, Contractor, TicketService, verify
+from .persistence import Persistence
+from .storage import Storage
+from .tickets import CATEGORY_TITLES, STATUS_TITLES, Contractor, TicketService, verify, visible_to
 from .ujin_bridge import UjinBridge
 
 bus = EventBus()
 registry = DeviceRegistry(bus, ujin_devices=config.UJIN.get("devices"))
-store = RuleStore(config.DATA_DIR / "rules.json")
-tickets = TicketService(bus)
+storage = Storage(config.DATA_DIR / "scenarist.db")
+store = RuleStore(storage, legacy_path=config.DATA_DIR / "rules.json")
+tickets = TicketService(bus, storage=storage)
 engine = Engine(registry, bus, store)
 dispatcher = Dispatcher(bus, registry, tickets, notify=engine.notify)
+persistence = Persistence(storage, registry, engine, dispatcher)
+mock_contractor.load(storage)
 engine.dispatch_hook = dispatcher.from_rule
 ujin = UjinBridge(bus, registry, config.UJIN)
 
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
-    if not registry.devices:
+    if not persistence.restore() and not registry.devices:
         for device_id, family, title, room, scope, kwargs in SEED_DEVICES:
             registry.create(family, title=title, room=room, scope=scope, device_id=device_id, **kwargs)
     if not store.rules:
         for rule in seed_rules():
             store.put(rule)
     tasks = [asyncio.create_task(c) for c in (
-        registry.run(), engine.run(), dispatcher.run(), ujin.run())]
+        registry.run(), engine.run(), dispatcher.run(), ujin.run(), persistence.run())]
     yield
     for task in tasks:
         task.cancel()
+    persistence.snapshot()
 
 
 app = FastAPI(title="Сценарист API", lifespan=lifespan)
@@ -227,6 +235,25 @@ async def simulate_rule(body: SimRequest):
     return report
 
 
+@app.get("/api/rules/{rule_id}/feature", response_class=PlainTextResponse)
+def rule_feature(rule_id: str):
+    """Сценарий проверки правила на Gherkin (русский)."""
+    return gherkin.to_feature(_rule(rule_id), registry)
+
+
+class FeatureRun(BaseModel):
+    rule: Rule
+    feature: str | None = None
+
+
+@app.post("/api/gherkin/run")
+async def run_feature(body: FeatureRun):
+    text = body.feature or gherkin.to_feature(body.rule, registry)
+    report = await gherkin.run_feature(text, body.rule, registry, store.all())
+    report["text"] = text
+    return report
+
+
 @app.get("/api/rules/{rule_id}/explain")
 def explain_rule(rule_id: str):
     return {"text": nl.explain(_rule(rule_id), registry)}
@@ -235,14 +262,38 @@ def explain_rule(rule_id: str):
 class NLRequest(BaseModel):
     text: str
     role: str = "resident"
+    previous: str | None = None          # прошлая просьба, когда человек нажал «нет, дополнить»
+
+
+class NLConfirm(BaseModel):
+    rule: Rule
+    role: str = "resident"
 
 
 @app.post("/api/nl/compile")
 async def nl_compile(body: NLRequest):
     try:
-        return await nl.compile_text(body.text, registry, store.all(), role=body.role)
+        return await nl.compile_text(body.text, registry, store.all(), role=body.role, previous=body.previous)
     except ai.AIUnavailable as exc:
         raise HTTPException(503, f"ИИ недоступен: {exc}")
+
+
+@app.post("/api/nl/confirm")
+async def nl_confirm(body: NLConfirm):
+    """«Да, подтвердить» на карточке пересказа. Одинаково для жителя и УК.
+
+    Разовая команда выполняется сразу. Правило сохраняется и включается, если линтер не нашёл ошибок;
+    с ошибками остаётся черновиком, и человек видит почему.
+    """
+    rule = body.rule
+    explanation = nl.explain(rule, registry)
+    if rule.trigger.device_id == "__now__":
+        return {"kind": "command", "explanation": explanation, "run": await nl.execute_now(rule, engine)}
+    report = summary(lint(rule, store.all(), registry))
+    rule.enabled = report["ok"]
+    rule.status = "active" if report["ok"] else "draft"
+    store.put(rule)
+    return {"kind": "rule", "explanation": explanation, "rule": rule.model_dump(mode="json"), "lint": report}
 
 
 @app.post("/api/nl/execute")
@@ -282,13 +333,19 @@ def notifications(target: str | None = None, limit: int = 50):
 # ---------- инциденты, заявки, подрядчики ----------
 
 @app.get("/api/incidents")
-def incidents(limit: int = 50):
-    return sorted(dispatcher.incidents.values(), key=lambda i: i["ts"])[-limit:]
+def incidents(limit: int = 50, role: str | None = None):
+    rows = sorted(dispatcher.incidents.values(), key=lambda i: i["ts"])
+    if role == "resident":
+        rows = [i for i in rows if i["scope"] == "apartment"]
+    elif role == "uk":
+        rows = [i for i in rows if i["scope"] == "building" or (i.get("verdict") or {}).get("level", 0) >= 3]
+    return rows[-limit:]
 
 
 @app.get("/api/tickets")
-def list_tickets():
-    return [t.model_dump(mode="json") for t in sorted(tickets.tickets.values(), key=lambda t: t.created)]
+def list_tickets(role: str | None = None):
+    rows = sorted(tickets.tickets.values(), key=lambda t: t.created)
+    return [t.model_dump(mode="json") for t in rows if role is None or visible_to(t, role)]
 
 
 class TicketMove(BaseModel):
@@ -334,6 +391,18 @@ def contractors():
 def put_contractor(contractor_id: str, c: Contractor):
     c.id = contractor_id
     return tickets.upsert_contractor(c).model_dump()
+
+
+@app.get("/api/policy")
+def get_policy():
+    return dispatcher.policy
+
+
+@app.put("/api/policy")
+def put_policy(policy: Policy):
+    dispatcher.policy = policy
+    persistence.save_policy()
+    return policy
 
 
 @app.get("/api/dictionaries")
