@@ -1,5 +1,7 @@
 name: Deploy
 
+# Деплой на VPS под пользователем varya: docker rootless, без root на сервере.
+# Секреты приложения (.env, secrets/ujin.json) лежат только на сервере, в GitHub их нет.
 on:
   push:
     branches: [main]
@@ -17,21 +19,12 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
             set -e
-            cd /opt/ujin-scenarist
-            git pull origin main
-            mkdir -p secrets
-            # Секреты пишутся при каждом деплое, чтобы смена ключа в GitHub доходила до сервера.
-            cat > secrets/ujin.json <<'JSON'
-            ${{ secrets.UJIN_SECRETS_JSON }}
-            JSON
-            cat > .env <<'ENV'
-            OPENROUTER_API_KEY=${{ secrets.OPENROUTER_API_KEY }}
-            LLM_MODEL=qwen/qwen3.8-flash
-            UJIN_LIVE=1
-            WEBHOOK_SECRET=${{ secrets.WEBHOOK_SECRET }}
-            ENV
+            export XDG_RUNTIME_DIR=/run/user/$(id -u)
+            export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock
+            cd ~/ujin-scenarist
+            git pull --ff-only origin main
             docker compose up -d --build
             docker image prune -f
             sleep 10
             docker compose ps
-            curl -fsS http://localhost/api/health
+            curl -fsS http://127.0.0.1:8800/api/health
