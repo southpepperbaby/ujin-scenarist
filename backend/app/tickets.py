@@ -86,6 +86,7 @@ class Ticket(BaseModel):
     description: str
     address: str = "ЖК «Северный», корп. 1, кв. 2806"
     device_id: str | None = None
+    related_devices: list[str] = []         # другие устройства, чьи неисправности вошли в эту заявку
     scope: Literal["apartment", "building"] = "apartment"
     incident_id: str | None = None
     rule_id: str | None = None
@@ -179,6 +180,25 @@ class TicketService:
             if t.device_id == device_id and t.status not in ("done", "closed", "cancelled"):
                 return t
         return None
+
+    def open_for_contractor(self, contractor_id: str, scope: str) -> Ticket | None:
+        """Открытая заявка тому же подрядчику на тот же адрес: вторая бригада на одну аварию не нужна."""
+        for t in self.tickets.values():
+            if t.contractor_id == contractor_id and t.scope == scope and t.status in ("draft", "new", "accepted"):
+                return t
+        return None
+
+    async def attach(self, t: Ticket, title: str, device_id: str | None, level: int, send: bool) -> Ticket:
+        """Связанная неисправность дописывается в открытую заявку. Критичное отправляет черновик сразу."""
+        t.description += f" Также: {title}."
+        t.related_devices.append(device_id or "")
+        t.level = max(t.level, level)
+        if send and t.status == "draft":
+            t.needs_confirmation = None
+            return await self.transition(t.id, "new", "автодиспетчер", note=f"срочно из-за: {title}")
+        t.history.append(HistoryItem(status=t.status, actor="автодиспетчер", note=f"добавлено: {title}"))
+        self._emit(t, "status")
+        return t
 
     def count_today(self, device_id: str) -> int:
         day = time.time() - 86400

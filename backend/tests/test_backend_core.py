@@ -183,6 +183,30 @@ async def test_duplicate_incident_does_not_create_second_ticket(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_related_fault_joins_open_ticket_of_same_contractor(monkeypatch):
+    monkeypatch.setattr(ai, "jev", no_jev)
+    _, _, tickets, _, disp = dispatch_setup()
+    first = await disp.handle("leak", "leak", "Протечка воды")
+    second = await disp.handle("valve", "jammed", "Заклинило привод клапана", forced_category="plumbing")
+    t = tickets.tickets[first["ticket_id"]]
+    assert second["decision"] == "merged" and second["ticket_id"] == t.id and len(tickets.tickets) == 1
+    assert "Заклинило привод клапана" in t.description and t.related_devices == ["valve"] and t.level == 3
+
+
+@pytest.mark.asyncio
+async def test_critical_fault_sends_open_draft_of_same_contractor(monkeypatch):
+    monkeypatch.setattr(ai, "jev", no_jev)
+    _, _, tickets, engine, disp = dispatch_setup()
+    draft = await disp.handle("valve", "jammed", "Заклинило привод клапана")
+    assert draft["decision"] == "draft"
+    leak = await disp.handle("leak", "leak", "Протечка воды")
+    t = tickets.tickets[draft["ticket_id"]]
+    assert leak["decision"] == "merged" and len(tickets.tickets) == 1
+    assert t.status == "new" and t.level == 3 and t.needs_confirmation is None
+    assert any(n["target"] == "concierge" and n["level"] == "critical" for n in engine.notifications)
+
+
+@pytest.mark.asyncio
 async def test_fallback_without_ai(monkeypatch):
     async def down(*a, **k):
         raise ai.AIUnavailable("нет сети")
