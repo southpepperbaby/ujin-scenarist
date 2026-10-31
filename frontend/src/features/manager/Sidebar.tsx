@@ -29,7 +29,7 @@ export function Sidebar({ path, drafts }: SidebarProps) {
           <Icon name="spark" size={20} />
         </span>
         <div>
-          <p className="text-sm font-semibold leading-tight">Сценарист</p>
+          <p className="text-sm font-semibold leading-tight">HOMIE AI</p>
           <p className="text-[11px] text-ink-mute">кабинет УК</p>
         </div>
       </div>

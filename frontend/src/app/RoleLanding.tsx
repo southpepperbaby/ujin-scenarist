@@ -54,7 +54,7 @@ export function RoleLanding() {
       <div className="relative mx-auto flex min-h-screen max-w-4xl flex-col justify-center gap-10 px-6 py-16">
         <header className="rise">
           <p className="text-sm font-medium tracking-wide text-accent">UJIN OS · ERRD TEAM</p>
-          <h1 className="mt-3 text-4xl">Сценарист</h1>
+          <h1 className="mt-3 text-4xl">HOMIE AI</h1>
           <p className="mt-3 max-w-xl text-ink-dim">
             Редактор сценариев умного дома: LLM пишет, Jev судит, эмулятор проверяет, движок исполняет.
             Один продукт, две роли.
