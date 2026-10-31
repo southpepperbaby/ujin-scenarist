@@ -442,18 +442,18 @@ def test_slow_subscriber_is_asked_to_reconnect():
 
 
 @pytest.mark.asyncio
-async def test_rule_check_reports_success_and_offline_warning():
+async def test_rule_check_warns_only_when_failure_would_go_unnoticed():
     from app.rule_check import check_rule
-    from app.seed import seed_rules
-    bus, reg = house()
-    rule = next(r for r in seed_rules() if r.id == "leak-shutoff").model_copy(
-        update={"trigger": Trigger(device_id="leak", signal="leak", value=1),
-                "actions": [SetSignal(device_id="valve", signal="valve", value=0),
-                            Notify(target="concierge", level="critical", message="Протечка")]})
-    out = await check_rule(rule, reg, [])
-    assert out["passed"]
-    assert out["lines"][0]["kind"] == "ok" and "консьерж получил уведомление" in out["lines"][0]["text"]
-    assert out["lines"][1]["kind"] == "warn" and out["lines"][1]["text"].endswith("но консьерж узнает о сбое.")
+    _, reg = house()
+    told = rule(actions=[SetSignal(device_id="valve", signal="valve", value=0),
+                         Notify(target="concierge", level="critical", message="Протечка")])
+    out = await check_rule(told, reg, [])
+    assert out["passed"] and [line["kind"] for line in out["lines"]] == ["ok"]
+    assert "консьерж получил уведомление" in out["lines"][0]["text"]
+
+    silent = rule(actions=[SetSignal(device_id="valve", signal="valve", value=0)])
+    out = await check_rule(silent, reg, [])
+    assert [line["kind"] for line in out["lines"]] == ["ok", "warn"] and "никто не узнает" in out["lines"][1]["text"]
 
 
 @pytest.mark.asyncio
