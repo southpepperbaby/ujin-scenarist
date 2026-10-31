@@ -1,22 +1,33 @@
+import { useState } from 'react'
+
+import type { Device } from '../../api'
 import { formatDuration } from '../../shared/format'
+import { Button } from '../../shared/ui/Button'
 import type { DispatchData } from '../../shared/use-dispatch'
 import { Panel } from './Panel'
 import { PolicyPanel } from './PolicyPanel'
+import { TicketFormModal } from './TicketFormModal'
 import { TicketRow } from './TicketRow'
 
-export function TicketsPage({ dispatch }: { dispatch: DispatchData }) {
+export function TicketsPage({ dispatch, devices }: { dispatch: DispatchData; devices: Device[] }) {
   const { tickets, contractors, categories, reload } = dispatch
+  const [creating, setCreating] = useState(false)
 
   return (
     <div className="grid gap-5 px-7 py-6 2xl:grid-cols-[1.7fr_1fr]">
-      <Panel title={`Заявки подрядчикам · ${tickets.length}`}>
-        {[...tickets].reverse().map((ticket) => (
-          <TicketRow key={ticket.id} ticket={ticket} categories={categories} onChanged={reload} />
-        ))}
-        {tickets.length === 0 && (
-          <p className="px-5 py-10 text-center text-[13px] text-ink-mute">Заявок пока нет.</p>
-        )}
-      </Panel>
+      <div className="space-y-4">
+        <Panel title={`Заявки подрядчикам · ${tickets.length}`}>
+          {[...tickets].reverse().map((ticket) => (
+            <TicketRow key={ticket.id} ticket={ticket} categories={categories} onChanged={reload} />
+          ))}
+          {tickets.length === 0 && (
+            <p className="px-5 py-10 text-center text-[13px] text-ink-mute">Заявок пока нет.</p>
+          )}
+        </Panel>
+        <Button variant="bright" icon="plus" onClick={() => setCreating(true)}>
+          Создать заявку
+        </Button>
+      </div>
 
       <div className="space-y-5">
         <PolicyPanel categories={categories} />
@@ -40,6 +51,16 @@ export function TicketsPage({ dispatch }: { dispatch: DispatchData }) {
           ))}
         </Panel>
       </div>
+
+      {creating && (
+        <TicketFormModal
+          devices={devices}
+          contractors={contractors}
+          categories={categories}
+          onClose={() => setCreating(false)}
+          onCreated={reload}
+        />
+      )}
     </div>
   )
 }

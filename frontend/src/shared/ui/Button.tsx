@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 
 import { Icon, type IconName } from './Icon'
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
+type ButtonVariant = 'primary' | 'bright' | 'secondary' | 'ghost' | 'danger'
 
 type ButtonProps = {
   children: ReactNode
@@ -15,6 +15,8 @@ type ButtonProps = {
 
 const VARIANTS: Record<ButtonVariant, string> = {
   primary: 'bg-accent text-accent-ink hover:brightness-110',
+  /** Яркий оранжевый палитры (#DD8607) для главного действия страницы; текст тёмно-коричневый ради контраста. */
+  bright: 'bg-accent-glow text-ink hover:brightness-105',
   secondary: 'bg-raised text-ink border border-line hover:border-line-strong',
   ghost: 'text-ink-dim hover:text-ink hover:bg-raised',
   danger: 'bg-sev-crit-soft text-sev-crit border border-sev-crit/35 hover:brightness-125',
