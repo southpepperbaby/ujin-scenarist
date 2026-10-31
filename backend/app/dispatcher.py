@@ -1,13 +1,18 @@
-"""Автодиспетчер: аварийный сигнал → инцидент → вердикт Jev → политика → заявка подрядчику.
+"""Автодиспетчер: аварийный сигнал → инцидент → вердикт → политика → заявка подрядчику.
 
-Почему не «LLM решает всё»: решение о выезде наряда должно быть объяснимым и с порогами. Jev даёт
-категорию, серьёзность и риски с вероятностями, а политика ниже превращает их в действие.
+Вердикт по умолчанию даёт таблица известных неисправностей: мгновенно, бесплатно, одинаково каждый
+раз и объяснимо одной строкой. Jev подключается только там, где таблица не знает ответа:
+1. неисправность, которой нет в таблице (тип из конструктора устройств, заявка из правила по
+   обычному сигналу, сообщение о проблеме без датчика): нужно выбрать подрядчика;
+2. в доме уже есть другая активная тревога: сочетание меняет серьёзность (клапан заклинило во время
+   протечки значит, что воду никто не перекроет).
+Jev отвечает на три вопроса: категория (только если неизвестна), серьёзность, ложное срабатывание.
 
 Quality gates по порядку:
 1. подтверждение сигнала: тревога должна продержаться DEBOUNCE секунд (дребезг датчика не вызывает наряд);
 2. дедупликация: на устройство одна открытая заявка;
 3. лимит заявок на устройство в сутки;
-4. уверенность Jev: ниже LOW только журнал, между LOW и HIGH решает человек, выше HIGH автоматически;
+4. уверенность (у таблицы всегда высокая): ниже LOW только журнал, между LOW и HIGH решает человек, выше HIGH автоматически;
 5. уровень: 0 журнал, 1-2 готовый черновик «отправить / отменить» у жителя и УК, 3 заявка сразу;
 6. стоимость выезда и рабочие часы подрядчика понижают автономность для некритичных случаев.
 """
@@ -45,7 +50,16 @@ FAULTS: dict[str, list[tuple[str, Any, str]]] = {
     "elevator": [("emergency", 1, "Лифт остановлен аварийно")],
 }
 
-# Запасной путь без ИИ: семейство → (категория, уровень).
+# Известные неисправности: (семейство, сигнал) → (категория, уровень). Здесь решает таблица, без ИИ.
+KNOWN: dict[tuple[str, str], tuple[str, int]] = {
+    ("leak", "leak"): ("plumbing", 3), ("leak", "tamper"): ("plumbing", 1),
+    ("fire", "alarm"): ("fire", 3), ("fire", "fault"): ("fire", 2), ("fire", "tamper"): ("fire", 1),
+    ("valve", "jammed"): ("plumbing", 2), ("barrier", "alarm"): ("access", 2),
+    ("thermostat", "fault"): ("heating", 1), ("elevator", "emergency"): ("lift", 3),
+}
+TABLE_CONFIDENCE = 0.95
+
+# Категория по семейству: потеря связи (уровень 1) и запасной путь, когда ИИ недоступен.
 FALLBACK = {
     "leak": ("plumbing", 3), "valve": ("plumbing", 2), "fire": ("fire", 3), "barrier": ("access", 2),
     "thermostat": ("heating", 1), "elevator": ("lift", 2), "light": ("electric", 1), "counter": ("general", 1),
@@ -213,49 +227,61 @@ class Dispatcher:
         return self._decide(inc, decision, ticket=ticket)
 
     async def classify(self, managed, signal, title, held_s, forced_category=None) -> dict:
-        """Jev оценивает инцидент. Без ключа или при сбое сети работает табличный запасной путь."""
-        state = self._state(managed, signal, title, held_s)
-        questions = {
-            "category": {"type": "choice", "instructions": "Какой подрядчик по договору должен устранять проблему?",
-                         "criteria": CATEGORY_CRITERIA},
-            "severity": {"type": "score", "instructions": "Насколько серьёзна ситуация для жителей и дома?",
-                         "criteria": ["Информация: ничего не сломано, просто событие",
-                                      "Минор: неудобство, риска для имущества и людей нет",
-                                      "Мажор: функция дома не работает, нужен ремонт в течение часов",
-                                      "Критично: идёт ущерб имуществу или есть угроза людям прямо сейчас"]},
-            "damage": {"type": "noul", "instructions": "Есть ли риск ущерба имуществу (вода, огонь, поломка), если ждать?"},
-            "people": {"type": "noul", "instructions": "Есть ли угроза здоровью или безопасности людей?"},
-            "false_alarm": {"type": "noul", "instructions": "Похоже ли это на ложное срабатывание датчика?"},
-        }
+        """Таблица для известных случаев, Jev только для неизвестных неисправностей и сочетаний тревог."""
+        others = self._other_alarms(managed)
+        known = KNOWN.get((managed.family, signal)) if signal else (FALLBACK.get(managed.family, ("general", 1))[0], 1)
+        if known and not others:
+            category, level = known
+            category = forced_category or category
+            what = "потеря связи" if not signal else "известная неисправность"
+            return {"source": "rules", "category": category, "level": level, "confidence": TABLE_CONFIDENCE,
+                    "false_alarm": None,
+                    "reasons": [f"{what.capitalize()}: по таблице «{CATEGORY_TITLES[category]}», "
+                                f"уровень «{LEVEL_TITLES[level]}». ИИ не нужен."]}
+
+        ask_category = not (forced_category or known)
+        questions = {}
+        if ask_category:
+            questions["category"] = {"type": "choice", "criteria": CATEGORY_CRITERIA,
+                                     "instructions": "Какой подрядчик по договору должен устранять проблему?"}
+        questions["severity"] = {
+            "type": "score", "instructions": "Насколько серьёзна ситуация для жителей и дома прямо сейчас?",
+            "criteria": ["Информация: ничего не сломано, просто событие",
+                         "Минор: неудобство, риска для имущества и людей нет",
+                         "Мажор: функция дома не работает, нужен ремонт в течение часов",
+                         "Критично: идёт ущерб имуществу (вода, огонь) или есть угроза людям"]}
+        questions["false_alarm"] = {"type": "noul", "instructions": "Похоже ли это на ложное срабатывание датчика?"}
+        why = "сочетание тревог: " + ", ".join(others) if others else "неисправности нет в таблице"
         try:
-            a = await ai.jev(state, questions)
+            a = await ai.jev(self._state(managed, signal, title, held_s, others), questions)
         except ai.AIUnavailable as exc:
-            category, level = FALLBACK.get(managed.family, ("general", 1))
-            return {"source": "rules", "category": forced_category or category, "level": level,
-                    "confidence": 0.9, "damage": None, "people": None, "false_alarm": None,
-                    "reasons": [f"ИИ недоступен ({exc}), решение по таблице семейств: "
+            category, level = known or FALLBACK.get(managed.family, ("general", 1))
+            category = forced_category or category
+            return {"source": "rules", "category": category, "level": level, "confidence": 0.9,
+                    "false_alarm": None,
+                    "reasons": [f"ИИ недоступен ({exc}), решение по таблице: "
                                 f"{CATEGORY_TITLES[category]}, {LEVEL_TITLES[level]}."]}
-        cat = a["category"]
-        category = forced_category or cat["choice"]
         probs = a["severity"]["probabilities"]          # {"0": p, "1": p, ...}
         level = int(max(probs, key=probs.get))
-        damage, people, false_alarm = a["damage"]["noul"], a["people"]["noul"], a["false_alarm"]["noul"]
-        reasons = [f"Jev: подрядчик «{CATEGORY_TITLES[category]}» (уверенность {cat['confidence']:.0%}), "
-                   f"уровень «{LEVEL_TITLES[level]}», риск ущерба {damage:.0%}, угроза людям {people:.0%}, "
-                   f"ложное срабатывание {false_alarm:.0%}."]
-        if (damage > 0.7 or people > 0.6) and level < 3:
-            level = 3
-            reasons.append("Высокий риск ущерба или угроза людям: поднимаем до «критично».")
+        if ask_category:
+            category, confidence = a["category"]["choice"], a["category"]["confidence"]
+        else:
+            category, confidence = forced_category or known[0], max(probs.values())
+        false_alarm = a["false_alarm"]["noul"]
+        reasons = [f"Jev ({why}): подрядчик «{CATEGORY_TITLES[category]}», уровень «{LEVEL_TITLES[level]}», "
+                   f"уверенность {confidence:.0%}, ложное срабатывание {false_alarm:.0%}."]
         if false_alarm > 0.6 and level > 0:
             level = max(0, level - 1)
             reasons.append("Вероятно ложное срабатывание: понижаем уровень на одну ступень.")
-        return {"source": "jev", "category": category, "level": level, "confidence": cat["confidence"],
-                "damage": damage, "people": people, "false_alarm": false_alarm, "reasons": reasons}
+        return {"source": "jev", "category": category, "level": level, "confidence": confidence,
+                "false_alarm": false_alarm, "reasons": reasons}
 
-    def _state(self, managed, signal, title, held_s) -> dict:
+    def _other_alarms(self, managed) -> list[str]:
+        return [title for m in self.registry.devices.values() if m.id != managed.id
+                for s, b, title in FAULTS.get(m.family, []) if m.state().get(s) == b]
+
+    def _state(self, managed, signal, title, held_s, others) -> dict:
         """Состояние для Jev без персональных данных: тип устройства, помещение, сигналы, соседние тревоги."""
-        others = [m.title for m in self.registry.devices.values()
-                  if m.id != managed.id and any(m.state().get(s) == b for s, b, _ in FAULTS.get(m.family, []))]
         signals = {s.title: s.value for s in managed.device.signals.values() if s.kind != "system"}
         return {
             "событие": title, "устройство": managed.device.title, "помещение": managed.room,
@@ -271,8 +297,8 @@ class Dispatcher:
         parts.append("Показания: " + ", ".join(f"{k} = {v}" for k, v in list(state.items())[:6]) + ".")
         if note:
             parts.append(note)
-        if verdict.get("damage") is not None and verdict["damage"] > 0.5:
-            parts.append("Есть риск ущерба имуществу, нужен приоритетный выезд.")
+        if verdict["level"] >= 3:
+            parts.append("Критично: идёт ущерб или есть угроза людям, нужен приоритетный выезд.")
         return " ".join(parts)
 
     def _notify_people(self, managed, ticket: Ticket, decision: str) -> None:
