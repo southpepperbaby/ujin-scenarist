@@ -50,9 +50,12 @@ async def lifespan(_app: FastAPI):
     for device_id, family, title, room, scope, kwargs in SEED_DEVICES:
         if device_id not in registry.devices:
             registry.create(family, title=title, room=room, scope=scope, device_id=device_id, **kwargs)
-    if not store.rules:
-        for rule in seed_rules():
+    # Правила из сида выдаём один раз: новые доходят до живой базы, удалённые в UI не воскресают.
+    seeded = set(storage.get("settings", "seeded_rules", []))
+    for rule in seed_rules():
+        if rule.id not in seeded and rule.id not in store.rules:
             store.put(rule)
+    storage.put("settings", "seeded_rules", sorted(seeded | {rule.id for rule in seed_rules()}))
     tasks = [asyncio.create_task(c) for c in (
         registry.run(), engine.run(), dispatcher.run(), ujin.run(), persistence.run())]
     yield
@@ -61,7 +64,7 @@ async def lifespan(_app: FastAPI):
     persistence.snapshot()
 
 
-app = FastAPI(title="Сценарист API", lifespan=lifespan)
+app = FastAPI(title="HOMIE AI API", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.include_router(mock_contractor_router)
 

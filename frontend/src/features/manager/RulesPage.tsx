@@ -11,11 +11,12 @@ import { RuleEditorModal, newRule } from './RuleEditorModal'
 type Editing = { rule: Rule; isNew: boolean } | null
 
 export function RulesPage({ devices }: { devices: Device[] }) {
-  const rules = useStore((state) => state.rules)
+  // У УК нет доступа к правилам жителей: в кабинете только правила дома.
+  const rules = useStore((state) => state.rules).filter((rule) => rule.owner === 'uk')
   const [editing, setEditing] = useState<Editing>(null)
   const [confirm, setConfirm] = useState('')
 
-  const sorted = [...rules].sort((a, b) => Number(b.owner === 'uk') - Number(a.owner === 'uk') || b.priority - a.priority)
+  const sorted = [...rules].sort((a, b) => b.priority - a.priority)
 
   const toggle = async (rule: Rule, enabled: boolean) => {
     const out = await guard(api.updateRule({ ...rule, enabled, status: enabled ? 'active' : rule.status }))
@@ -34,7 +35,7 @@ export function RulesPage({ devices }: { devices: Device[] }) {
         <Button variant="primary" icon="plus" onClick={() => setEditing({ rule: newRule(devices), isNew: true })}>
           Новое правило
         </Button>
-        <span className="text-[12px] text-ink-mute">Правила УК важнее правил жителей: приоритет задаёт порядок</span>
+        <span className="text-[12px] text-ink-mute">Правила дома важнее правил жителей; приоритет задаёт порядок</span>
       </div>
 
       {sorted.length === 0 && <p className="text-sm text-ink-mute">Правил пока нет. Создайте первое.</p>}
@@ -50,10 +51,7 @@ export function RulesPage({ devices }: { devices: Device[] }) {
               <header className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-[14px] font-medium">{rule.title}</p>
-                  <p className="text-[12px] text-ink-mute">
-                    {rule.owner === 'uk' ? `УК · приоритет ${rule.priority}` : 'правило жителя'} ·{' '}
-                    {rule.scope === 'building' ? 'дом' : 'квартира'}
-                  </p>
+                  <p className="text-[12px] text-ink-mute">приоритет {rule.priority}</p>
                 </div>
                 <Toggle checked={rule.enabled} onChange={(next) => void toggle(rule, next)} label="Включить правило" />
               </header>

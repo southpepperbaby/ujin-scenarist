@@ -31,7 +31,7 @@ def _headers() -> dict:
     return {
         "Authorization": f"Bearer {config.OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "X-Title": "Scenarist (Ujin hackathon)",
+        "X-Title": "HOMIE AI (Ujin hackathon)",
     }
 
 
