@@ -22,7 +22,7 @@ function isActive(path: string, tab: Tab): boolean {
 
 export function TabBar({ path, unread }: TabBarProps) {
   return (
-    <nav className="flex shrink-0 border-t border-line bg-surface/95 px-2 pt-2 pb-3 backdrop-blur">
+    <nav className="glass glass-strong flex shrink-0 rounded-none border-x-0 border-b-0 px-2 pt-2 pb-3">
       {TABS.map((tab) => {
         const active = isActive(path, tab)
         return (
@@ -30,7 +30,7 @@ export function TabBar({ path, unread }: TabBarProps) {
             key={tab.to}
             type="button"
             onClick={() => navigate(tab.to)}
-            className={`relative flex flex-1 flex-col items-center gap-1 rounded-xl py-1.5 text-[11px] font-medium transition ${
+            className={`press relative flex flex-1 flex-col items-center gap-1 rounded-xl py-1.5 text-[11px] font-medium transition ${
               active ? 'text-accent' : 'text-ink-mute hover:text-ink-dim'
             }`}
           >

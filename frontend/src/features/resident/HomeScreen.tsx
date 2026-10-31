@@ -65,7 +65,7 @@ export function HomeScreen({ demo }: { demo: boolean }) {
       <header className="flex items-start justify-between">
         <div>
           <p className="text-[13px] text-ink-mute">ЖК «Северный», корп. 1</p>
-          <h1 className="text-2xl font-semibold">Квартира 2806</h1>
+          <h1 className="text-2xl">Квартира 2806</h1>
         </div>
         <span className="flex size-10 items-center justify-center rounded-full bg-raised text-ink-dim">
           <Icon name="user" size={20} />
@@ -87,8 +87,8 @@ export function HomeScreen({ demo }: { demo: boolean }) {
           <span className="text-[13px] text-ink-mute">{mine.length}</span>
         </div>
         <div className="grid grid-cols-2 gap-2.5">
-          {mine.map((device) => (
-            <DeviceTile key={device.id} device={device} />
+          {mine.map((device, index) => (
+            <DeviceTile key={device.id} device={device} index={index} />
           ))}
         </div>
       </section>
@@ -131,8 +131,8 @@ export function HomeScreen({ demo }: { demo: boolean }) {
         <section className="space-y-3">
           <h2 className="text-base font-semibold">Общедомовое</h2>
           <div className="grid grid-cols-2 gap-2.5">
-            {shared.map((device) => (
-              <DeviceTile key={device.id} device={device} />
+            {shared.map((device, index) => (
+              <DeviceTile key={device.id} device={device} index={index} />
             ))}
           </div>
         </section>

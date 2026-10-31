@@ -1,6 +1,5 @@
 import type { Device } from '../../api'
 import { isAlarm } from '../../devices'
-import { formatPercent } from '../../shared/format'
 import type { DispatchData } from '../../shared/use-dispatch'
 import { Icon } from '../../shared/ui/Icon'
 import { IncidentRow } from './IncidentRow'
@@ -31,28 +30,33 @@ export function DashboardPage({ devices, dispatch }: DashboardPageProps) {
     <div className="space-y-5 px-7 py-6">
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
         <KpiCard
+          index={0}
           label="Аварий сейчас"
-          value={String(alarms.length)}
+          value={alarms.length}
           hint={`инцидентов за сутки: ${incidents.length}`}
           icon="alert"
           tone={alarms.length > 0 ? 'alert' : 'ok'}
         />
         <KpiCard
+          index={1}
           label="Заявок в работе"
-          value={String(open.length)}
+          value={open.length}
           hint={`${drafts.length} ждут подтверждения`}
           icon="wrench"
         />
         <KpiCard
+          index={2}
           label="Нет связи"
-          value={String(offline.length)}
+          value={offline.length}
           hint={`устройств всего: ${devices.length}`}
           icon="wifiOff"
           tone={offline.length > 0 ? 'alert' : 'ok'}
         />
         <KpiCard
+          index={3}
           label="Ушло без человека"
-          value={formatPercent(autoShare)}
+          value={Math.round(autoShare * 100)}
+          suffix="%"
           hint={`остальное — черновики; пул из ${contractors.length} подрядчиков`}
           icon="spark"
           tone="ok"

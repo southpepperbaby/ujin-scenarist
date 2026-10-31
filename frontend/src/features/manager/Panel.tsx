@@ -10,7 +10,7 @@ type PanelProps = {
 
 export function Panel({ title, children, action }: PanelProps) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-line bg-surface">
+    <section className="glass overflow-hidden rounded-2xl">
       <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
         <h2 className="text-sm font-semibold">{title}</h2>
         {action && (

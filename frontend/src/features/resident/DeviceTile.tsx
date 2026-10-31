@@ -8,21 +8,22 @@ import { deviceIcon } from './device-icons'
 /** Сигнал-выключатель на плитке: то, чем житель управляет одним касанием. */
 const SWITCHES = ['lamp', 'valve', 'open_cmd']
 
-export function DeviceTile({ device }: { device: Device }) {
+export function DeviceTile({ device, index = 0 }: { device: Device; index?: number }) {
   const toggle = device.signals.find((signal) => SWITCHES.includes(signal.name) && signal.management !== 'r')
   const alarm = isAlarm(device)
   const on = Number(toggle?.value ?? 0) === 1
 
   return (
     <div
-      className={`flex flex-col gap-3 rounded-2xl border p-4 ${
-        alarm ? 'border-sev-crit/40 bg-sev-crit-soft' : 'border-line bg-surface'
+      style={{ '--i': index } as React.CSSProperties}
+      className={`rise lift flex flex-col gap-3 rounded-2xl p-4 ${
+        alarm ? 'border border-sev-crit/40 bg-sev-crit-soft' : 'glass'
       } ${device.online ? '' : 'opacity-55'}`}
     >
       <div className="flex items-start justify-between">
         <span
           className={`flex size-10 items-center justify-center rounded-xl ${
-            alarm ? 'bg-sev-crit/20 text-sev-crit' : 'bg-raised text-ink-dim'
+            alarm ? 'animate-float bg-sev-crit/20 text-sev-crit' : 'bg-raised/70 text-ink-dim'
           }`}
         >
           <Icon name={deviceIcon(device.family)} size={20} />

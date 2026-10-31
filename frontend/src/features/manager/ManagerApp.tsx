@@ -1,3 +1,4 @@
+import { Aurora } from '../../shared/ui/Aurora'
 import { useStore } from '../../store'
 import { useDispatchData } from '../../shared/use-dispatch'
 import { DashboardPage } from './DashboardPage'
@@ -36,9 +37,10 @@ export function ManagerApp({ path, demo }: ManagerAppProps) {
   else page = <DashboardPage devices={devices} dispatch={dispatch} />
 
   return (
-    <div className="flex h-screen bg-base text-ink">
+    <div className="relative flex h-screen overflow-hidden bg-base text-ink">
+      <Aurora />
       <Sidebar path={path} drafts={openIncidents} />
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="relative z-10 flex min-w-0 flex-1 flex-col">
         <TopBar title={head.title} subtitle={head.subtitle} demo={demo} />
         <div className="scroll-slim min-h-0 flex-1 overflow-y-auto">{page}</div>
       </main>
