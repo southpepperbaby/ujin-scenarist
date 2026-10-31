@@ -29,15 +29,32 @@ export const useStore = create<State>((set, get) => ({
 
   load: async () => {
     const seq = ++devicesSeq
-    const [devices, families, rules, events, notifications] = await Promise.all([
+    const results = await Promise.allSettled([
       api.devices(),
       api.families(),
       api.rules(),
       api.events(150),
       api.notifications(),
-    ])
-    // Устройства применяем только если после этого не стартовал более новый запрос.
-    set(seq === devicesSeq ? { devices, families, rules, events, notifications } : { families, rules, events, notifications })
+    ] as const)
+    // Бэкенд недоступен целиком: пусть вызывающий решает (демо-режим при старте).
+    const failed = results.filter((r) => r.status === 'rejected')
+    if (failed.length === results.length) throw (failed[0] as PromiseRejectedResult).reason
+    // Один упавший запрос не роняет остальное: его срез остаётся прежним, человек видит предупреждение.
+    const [devices, families, rules, events, notifications] = results
+    const s = get()
+    const ok = <T,>(r: PromiseSettledResult<T>, prev: T) => (r.status === 'fulfilled' ? r.value : prev)
+    set({
+      // Устройства применяем только если после этого не стартовал более новый запрос.
+      devices: seq === devicesSeq ? ok(devices, s.devices) : s.devices,
+      families: ok(families, s.families),
+      rules: ok(rules, s.rules),
+      events: ok(events, s.events),
+      notifications: ok(notifications, s.notifications),
+    })
+    if (failed.length > 0) {
+      get().setError(`Часть данных не загрузилась (${failed.length} из ${results.length}), остальное работает`)
+      setTimeout(() => get().setError(null), 4000)
+    }
   },
 
   reloadDevices: async () => {
