@@ -19,14 +19,15 @@ from .dispatcher import FAULTS, Dispatcher, Policy
 from .emu import REGISTRY, DeviceRegistry, family_info
 from .engine import Engine
 from .linter import lint, summary
-from .rules import Rule, RuleStore, to_ujin_autoscript
+from .rules import NOW, Rule, RuleStore
 from .seed import SEED_DEVICES, seed_rules
 from .simulate import simulate
 from . import mock_contractor
 from .mock_contractor import router as mock_contractor_router
 from .persistence import Persistence
 from .storage import Storage
-from .tickets import CATEGORY_TITLES, STATUS_TITLES, Contractor, TicketService, verify, visible_to
+from .tickets import (CATEGORY_TITLES, STATUS_TITLES, Contractor, TicketService, verify, visible_to,
+                      visible_to_role)
 from .ujin_bridge import UjinBridge
 
 bus = EventBus()
@@ -276,7 +277,7 @@ async def simulate_rule(body: SimRequest):
                             offline=body.offline, with_others=body.with_others, at=body.at)
     report["lint"] = summary(lint(body.rule, store.all(), registry))
     stored = store.rules.get(body.rule.id)
-    if stored and report["passed"] and report["lint"]["ok"] and stored.status in ("draft", "checked"):
+    if stored and report["passed"] and report["lint"]["ok"] and stored.status == "draft":
         stored.status = "tested"
         store.put(stored)
     return report
@@ -334,7 +335,7 @@ async def nl_confirm(body: NLConfirm):
     """
     rule = body.rule
     explanation = nl.explain(rule, registry)
-    if rule.trigger.device_id == "__now__":
+    if rule.trigger.device_id == NOW:
         return {"kind": "command", "explanation": explanation, "run": await nl.execute_now(rule, engine)}
     report = summary(lint(rule, store.all(), registry))
     rule.enabled = report["ok"]
@@ -362,8 +363,7 @@ async def run_rule(rule_id: str):
 
 @app.get("/api/rules/{rule_id}/ujin")
 def export_rule(rule_id: str):
-    serials = {m.id: m.ujin["sn"] for m in registry.devices.values() if m.ujin}
-    return to_ujin_autoscript(_rule(rule_id), serials, prefix="integrations_devices_")
+    return ujin.export(_rule(rule_id))
 
 
 @app.get("/api/runs")
@@ -382,11 +382,8 @@ def notifications(target: str | None = None, limit: int = 50):
 @app.get("/api/incidents")
 def incidents(limit: int = 50, role: str | None = None):
     rows = sorted(dispatcher.incidents.values(), key=lambda i: i["ts"])
-    if role == "resident":
-        rows = [i for i in rows if i["scope"] == "apartment"]
-    elif role == "uk":
-        rows = [i for i in rows if i["scope"] == "building" or (i.get("verdict") or {}).get("level", 0) >= 3]
-    return rows[-limit:]
+    level = lambda i: (i.get("verdict") or {}).get("level", 0)  # noqa: E731
+    return [i for i in rows if role is None or visible_to_role(i["scope"], level(i), role)][-limit:]
 
 
 @app.get("/api/tickets")
@@ -511,13 +508,19 @@ def events(limit: int = 100):
     return bus.recent(limit)
 
 
+WS_QUEUE = 500
+
+
 @app.websocket("/ws")
 async def ws_events(ws: WebSocket):
     await ws.accept()
-    q = bus.subscribe()
+    q = bus.subscribe(maxsize=WS_QUEUE)
     try:
         while True:
             event = await q.get()
+            if event is None:                    # клиент не успевал читать: пусть переподключится
+                await ws.close(code=1013)
+                break
             await ws.send_json(event.to_dict())
     except WebSocketDisconnect:
         pass

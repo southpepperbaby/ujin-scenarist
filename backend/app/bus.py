@@ -36,14 +36,21 @@ class EventBus:
         event.seq = next(self._seq)
         self.history.append(event)
         for q in list(self._subs):
-            q.put_nowait(event)
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                # Медленный клиент не копит память: очередь сбрасывается, None просит его переподключиться,
+                # после переподключения интерфейс заново загружает всё состояние.
+                while not q.empty():
+                    q.get_nowait()
+                q.put_nowait(None)
         return event
 
     def emit(self, kind: str, device_id: str | None = None, **data) -> Event:
         return self.publish(Event(kind=kind, device_id=device_id, data=data))
 
-    def subscribe(self) -> asyncio.Queue:
-        q: asyncio.Queue = asyncio.Queue()
+    def subscribe(self, maxsize: int = 0) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue(maxsize)
         self._subs.add(q)
         return q
 

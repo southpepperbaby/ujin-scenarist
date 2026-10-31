@@ -16,11 +16,15 @@ EMU_DIR = Path(__file__).resolve().parent.parent / "emulators"
 if str(EMU_DIR) not in sys.path:
     sys.path.insert(0, str(EMU_DIR))
 
-from core import Device  # noqa: E402
+from core import Device, Signal  # noqa: E402
 from devices import REGISTRY  # noqa: E402
 
 from .bus import EventBus  # noqa: E402
+from .dictionaries import FAULTS  # noqa: E402
 
+# Три общих реестра по семейству устройства: REGISTRY (класс эмулятора, от организаторов), INPUTS (ниже)
+# и dictionaries.FAULTS. Конструктор своих типов (device_types.DeviceTypes) дописывает и удаляет записи
+# во всех трёх сразу, поэтому диспетчер, песочница и прогон видят свои типы без отдельной регистрации.
 # Ручки физики: чем песочница может подтолкнуть датчик снаружи (имя входа -> метод устройства).
 INPUTS: dict[str, dict[str, str]] = {
     "leak": {"wet": "set_wet"},
@@ -97,7 +101,13 @@ class Managed:
             "inputs": sorted(INPUTS.get(self.family, {})),
             "signals": signals,
             "events": device_events(self.device),
+            "alarms": self.alarms(),
         }
+
+    def alarms(self) -> list[str]:
+        """Активные неисправности словами: по ним интерфейс красит плитку, в том числе у своих типов."""
+        state = self.state()
+        return [title for s, bad, title in FAULTS.get(self.family, []) if state.get(s) == bad]
 
 
 class DeviceRegistry:
@@ -144,6 +154,23 @@ class DeviceRegistry:
 
     def get(self, device_id: str) -> Managed:
         return self.devices[device_id]
+
+    # ---------- подписи для людей: пересказ, Gherkin, журнал ----------
+
+    def title(self, device_id: str, missing: str | None = None) -> str:
+        m = self.devices.get(device_id)
+        return m.title if m else (missing if missing is not None else device_id)
+
+    def signal(self, device_id: str, name: str) -> Signal | None:
+        m = self.devices.get(device_id)
+        return m.device.signals.get(name) if m else None
+
+    def label(self, device_id: str, name: str, value: Any) -> str:
+        """Значение словами: «закрыт» вместо 0, если у сигнала есть справочник значений."""
+        s = self.signal(device_id, name)
+        if s and s.layout:
+            return str(s.layout.get(value, s.layout.get(str(value), value)))
+        return str(value)
 
     def _take_binding(self, family: str) -> dict | None:
         for i, row in enumerate(self._ujin_pool):
