@@ -38,6 +38,8 @@ export type Family = {
   /** Свой тип из конструктора: его можно править и удалять. */
   custom?: boolean
   spec?: DeviceTypeSpec | null
+  /** Поведение своего типа простым языком, собрано бэкендом из behaviors. */
+  behavior?: string[]
 }
 
 export type SignalGroup = 'property' | 'event' | 'command' | 'setting'
@@ -56,7 +58,12 @@ export type SignalSpec = {
   alarm_value?: number | string | null
 }
 
-export type DeviceTypeSpec = { family: string; title: string; signals: SignalSpec[] }
+export type Behavior =
+  | { type: 'drift'; signal: string; step: number; noise: number }
+  | { type: 'effect'; command: string; value: number | string | null; target: string; target_value: number | string | null; delay: number }
+  | { type: 'threshold'; source: string; op: 'gt' | 'gte' | 'lt' | 'lte'; limit: number; target: string; value: number | string; else_value: number | string | null }
+
+export type DeviceTypeSpec = { family: string; title: string; signals: SignalSpec[]; behaviors?: Behavior[] }
 
 export type Op = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'changed'
 
