@@ -7,8 +7,8 @@ const listeners = new Set<() => void>()
 
 function initial(): Theme {
   const saved = localStorage.getItem(KEY)
-  if (saved === 'light' || saved === 'dark') return saved
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  // Светлая — по умолчанию, даже при тёмной теме системы: тёмную человек включает сам, выбор запоминается.
+  return saved === 'dark' ? 'dark' : 'light'
 }
 
 let theme: Theme = initial()
