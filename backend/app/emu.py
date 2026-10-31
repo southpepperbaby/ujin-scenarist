@@ -207,8 +207,7 @@ class DeviceRegistry:
         """Всё, что нужно, чтобы поднять устройства как были: метаданные, привязку, значения, физику."""
         out = []
         for m in self.devices.values():
-            inner = {k: v for k, v in vars(m.device).items()
-                     if k.startswith("_") and isinstance(v, (int, float, str, bool, type(None)))}
+            inner = {k: v for k, v in vars(m.device).items() if k.startswith("_") and _plain(v)}
             out.append({"id": m.id, "family": m.family, "title": m.title, "room": m.room, "scope": m.scope,
                         "ujin": m.ujin, "serial": m.device.serial, "online": m.online, "params": m.params,
                         "state": m.state(), "inner": inner})
@@ -272,3 +271,14 @@ def _coerce_input(value: Any) -> Any:
         except ValueError:
             return value
     return value
+
+
+def _plain(v) -> bool:
+    """Внутреннее состояние эмулятора, которое переживёт JSON: числа, строки и их списки (очередь эффектов)."""
+    if isinstance(v, (int, float, str, bool, type(None))):
+        return True
+    if isinstance(v, (list, tuple)):
+        return all(_plain(x) for x in v)
+    if isinstance(v, dict):
+        return all(isinstance(k, str) and _plain(x) for k, x in v.items())
+    return False
