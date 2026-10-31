@@ -182,7 +182,8 @@ def explain(rule: Rule, registry: DeviceRegistry) -> str:
             act = f"{TARGET_WORDS.get(a.target, a.target)}{LEVEL_WORDS.get(a.level, '')}: «{a.message}»"
         else:
             who = f"подрядчика «{CATEGORY_TITLES.get(a.category, a.category)}»" if a.category else "подходящего подрядчика"
-            act = f"вызвать {who} через автодиспетчер" + (f" с пометкой «{a.note}»" if a.note else "")
+            about = f" по устройству «{dev(a.device_id)}»" if a.device_id else ""
+            act = f"вызвать {who}{about} через автодиспетчер" + (f" с пометкой «{a.note}»" if a.note else "")
         if a.delay_s:
             act = f"через {a.delay_s:g} с {act}"
         acts.append(act)
