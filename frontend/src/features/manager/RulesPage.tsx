@@ -16,7 +16,8 @@ export function RulesPage({ devices }: { devices: Device[] }) {
   const [editing, setEditing] = useState<Editing>(null)
   const [confirm, setConfirm] = useState('')
 
-  const sorted = [...rules].sort((a, b) => b.priority - a.priority)
+  // Правила жителя остаются в его приложении: УК управляет только своими.
+  const sorted = rules.filter((rule) => rule.owner === 'uk').sort((a, b) => b.priority - a.priority)
 
   const toggle = async (rule: Rule, enabled: boolean) => {
     const out = await guard(api.updateRule({ ...rule, enabled, status: enabled ? 'active' : rule.status }))
@@ -35,7 +36,7 @@ export function RulesPage({ devices }: { devices: Device[] }) {
         <Button variant="primary" icon="plus" onClick={() => setEditing({ rule: newRule(devices), isNew: true })}>
           Новое правило
         </Button>
-        <span className="text-[12px] text-ink-mute">Правила дома важнее правил жителей; приоритет задаёт порядок</span>
+        <span className="text-[12px] text-ink-mute">Правила УК важнее правил жителей. Правила жителей видят только сами жители</span>
       </div>
 
       {sorted.length === 0 && <p className="text-sm text-ink-mute">Правил пока нет. Создайте первое.</p>}
