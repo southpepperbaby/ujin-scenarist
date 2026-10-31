@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { api, type Device, type Rule } from '../../api'
-import { describeRule } from '../../rules'
+import { ruleLines } from '../../shared/rule/rule-lines'
 import { Button } from '../../shared/ui/Button'
 import { Toggle } from '../../shared/ui/Toggle'
 import { guard, useStore } from '../../store'
@@ -40,7 +40,7 @@ export function RulesPage({ devices }: { devices: Device[] }) {
 
       <div className="grid gap-3 xl:grid-cols-2">
         {sorted.map((rule) => {
-          const { when, acts } = describeRule(rule, devices)
+          const { when, conditions, actions } = ruleLines(rule, devices)
           return (
             <article
               key={rule.id}
@@ -57,10 +57,15 @@ export function RulesPage({ devices }: { devices: Device[] }) {
                 <Toggle checked={rule.enabled} onChange={(next) => void toggle(rule, next)} label="Включить правило" />
               </header>
               <p className="mt-3 text-[13px] text-ink-dim">
-                <span className="font-medium text-ink">Когда</span> {when}
+                <span className="font-medium text-ink">Когда</span> {when.join(' · ')}
               </p>
+              {conditions.length > 0 && (
+                <p className="text-[13px] text-ink-dim">
+                  <span className="font-medium text-ink">Если</span> {conditions.join(' · ')}
+                </p>
+              )}
               <p className="text-[13px] text-ink-dim">
-                <span className="font-medium text-ink">То</span> {acts.join(' · ')}
+                <span className="font-medium text-ink">То</span> {actions.join(' · ')}
               </p>
               <footer className="mt-3 flex items-center gap-1">
                 <Button variant="secondary" onClick={() => setEditing({ rule, isNew: false })}>

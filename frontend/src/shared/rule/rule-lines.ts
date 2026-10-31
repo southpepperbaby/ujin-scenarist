@@ -1,7 +1,7 @@
 import type { Device, Rule } from '../../api'
 import { deviceById, signalTitle, valueLabel } from '../../store'
 
-const OP_TITLE: Record<string, string> = {
+export const OP_TITLE: Record<string, string> = {
   eq: '=',
   ne: '≠',
   gt: '>',
@@ -10,8 +10,6 @@ const OP_TITLE: Record<string, string> = {
   lte: '≤',
   changed: 'изменился',
 }
-
-const TIME_HINT = 'условие по времени'
 
 function deviceName(devices: Device[], id: string): string {
   return deviceById(devices, id)?.title ?? id
@@ -29,7 +27,7 @@ export function ruleLines(rule: Rule, devices: Device[]) {
   ]
 
   const conditions = rule.conditions.map((condition) => {
-    if (condition.type === 'time' || !condition.device_id) return TIME_HINT
+    if (condition.type === 'time') return `время с ${condition.start} до ${condition.end}`
     return `${deviceName(devices, condition.device_id)} · ${signalTitle(devices, condition.device_id, condition.signal)} ${
       OP_TITLE[condition.op] ?? condition.op
     } ${valueLabel(devices, condition.device_id, condition.signal, condition.value)}`

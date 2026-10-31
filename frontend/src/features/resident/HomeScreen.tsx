@@ -74,7 +74,7 @@ export function HomeScreen({ demo }: { demo: boolean }) {
 
       {demo && (
         <p className="rounded-xl border border-line bg-raised px-3 py-2 text-[12px] text-ink-mute">
-          Бэкенд не отвечает — показан демо-набор данных.
+          Бэкенд не отвечает, показан демо-набор данных.
         </p>
       )}
 
