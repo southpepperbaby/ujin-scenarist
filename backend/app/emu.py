@@ -27,7 +27,12 @@ INPUTS: dict[str, dict[str, str]] = {
     "fire": {"smoke": "set_smoke"},
     "barrier": {"obstacle": "set_obstacle"},
     "thermostat": {"fault": "set_fault"},
+    "valve": {"jam": "set_jam"},
 }
+
+
+class DeviceUnavailable(RuntimeError):
+    """Устройство офлайн: команда не доставлена, движок повторит попытку."""
 
 
 def family_info(family: str) -> dict:
@@ -39,7 +44,24 @@ def family_info(family: str) -> dict:
         "model": cls.model,
         "inputs": sorted(INPUTS.get(family, {})),
         "declaration": probe.declaration(),
+        "events": device_events(probe),
     }
+
+
+def device_events(device: Device) -> list[dict]:
+    """Генерируемые события (четвёртая группа ТЗ): переходы сигналов-состояний в именованные значения.
+
+    В декларации Ujin событий как группы нет, поэтому выводим их из сигналов со справочником значений:
+    `leak` с layout {0: нет, 1: протечка} даёт событие «Протечка: протечка».
+    """
+    out = []
+    for sig in device.signals.values():
+        if sig.kind == "system" or not sig.layout:
+            continue
+        for value, label in sig.layout.items():
+            out.append({"id": f"{sig.name}={value}", "signal": sig.name, "value": value,
+                        "title": f"{sig.title}: {label}"})
+    return out
 
 
 @dataclass
@@ -51,6 +73,7 @@ class Managed:
     room: str = ""
     scope: str = "apartment"          # apartment | building
     ujin: dict | None = None          # привязка к стенду: sn / ext / model, если есть
+    online: bool = True
 
     def state(self) -> dict[str, Any]:
         return {name: sig.value for name, sig in self.device.signals.items()}
@@ -69,8 +92,10 @@ class Managed:
             "room": self.room,
             "scope": self.scope,
             "ujin": {"sn": self.ujin["sn"], "ext": self.ujin["ext"]} if self.ujin else None,
+            "online": self.online,
             "inputs": sorted(INPUTS.get(self.family, {})),
             "signals": signals,
+            "events": device_events(self.device),
         }
 
 
@@ -126,6 +151,8 @@ class DeviceRegistry:
     def command(self, device_id: str, signal: str, value: Any) -> dict:
         """Команда платформы или правила: только управляемые сигналы (rw / w)."""
         managed = self.get(device_id)
+        if not managed.online:
+            raise DeviceUnavailable(f"{managed.title} недоступно")
         sig = managed.device.signals.get(signal)
         if sig is None:
             raise KeyError(f"unknown signal: {signal}")
@@ -151,11 +178,31 @@ class DeviceRegistry:
             raise KeyError(f"unknown signal: {signal}")
         return self._apply(managed, lambda: managed.device.emit_event(signal, value), source="manual")
 
+    def set_online(self, device_id: str, online: bool) -> None:
+        managed = self.get(device_id)
+        managed.online = online
+        self.bus.emit("device", device_id, action="online" if online else "offline",
+                      message=f"{managed.title}: {'на связи' if online else 'нет связи'}")
+
+    def update_meta(self, device_id: str, title: str | None = None, room: str | None = None,
+                    scope: str | None = None) -> Managed:
+        managed = self.get(device_id)
+        if title is not None:
+            managed.title = title
+        if room is not None:
+            managed.room = room
+        if scope is not None:
+            managed.scope = scope
+        self.bus.emit("device", device_id, action="updated", device=managed.to_dict())
+        return managed
+
     # ---------- симуляция ----------
 
     def step_all(self, dt: int = 1) -> None:
         self.tick_count += 1
         for managed in list(self.devices.values()):
+            if not managed.online:
+                continue
             self._apply(managed, lambda m=managed: m.device.step(dt), source="tick")
 
     async def run(self) -> None:

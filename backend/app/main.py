@@ -12,30 +12,28 @@ from pydantic import BaseModel
 from . import config
 from .bus import EventBus
 from .emu import REGISTRY, DeviceRegistry, family_info
+from .engine import Engine
+from .rules import Rule, RuleStore, to_ujin_autoscript
+from .seed import SEED_DEVICES, seed_rules
 
 bus = EventBus()
 registry = DeviceRegistry(bus, ujin_devices=config.UJIN.get("devices"))
-
-# Демо-квартира и общедомовое: пять устройств стенда плюс пожарный датчик и лифт.
-SEED = [
-    ("leak", "Датчик протечки", "Кухня", "apartment", {}),
-    ("counter", "Счётчик холодной воды", "Кухня", "apartment", {"resource": "cold"}),
-    ("thermostat", "Термостат", "Спальня", "apartment", {}),
-    ("light", "Свет", "Коридор", "apartment", {}),
-    ("fire", "Пожарный датчик", "Кухня", "apartment", {}),
-    ("barrier", "Шлагбаум", "Двор", "building", {}),
-    ("elevator", "Лифт", "Подъезд 1", "building", {"floors": 9}),
-]
+store = RuleStore(config.DATA_DIR / "rules.json")
+engine = Engine(registry, bus, store)
 
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
     if not registry.devices:
-        for family, title, room, scope, kwargs in SEED:
-            registry.create(family, title=title, room=room, scope=scope, **kwargs)
-    task = asyncio.create_task(registry.run())
+        for device_id, family, title, room, scope, kwargs in SEED_DEVICES:
+            registry.create(family, title=title, room=room, scope=scope, device_id=device_id, **kwargs)
+    if not store.rules:
+        for rule in seed_rules():
+            store.put(rule)
+    tasks = [asyncio.create_task(registry.run()), asyncio.create_task(engine.run())]
     yield
-    task.cancel()
+    for task in tasks:
+        task.cancel()
 
 
 app = FastAPI(title="Сценарист API", lifespan=lifespan)
@@ -61,6 +59,13 @@ class SignalWrite(BaseModel):
 class InputWrite(BaseModel):
     input: str
     value: Any
+
+
+class DevicePatch(BaseModel):
+    title: str | None = None
+    room: str | None = None
+    scope: str | None = None
+    online: bool | None = None
 
 
 class SimUpdate(BaseModel):
@@ -103,6 +108,14 @@ def get_device(device_id: str):
     return _managed(device_id).to_dict()
 
 
+@app.patch("/api/devices/{device_id}")
+def patch_device(device_id: str, body: DevicePatch):
+    _managed(device_id)
+    if body.online is not None:
+        registry.set_online(device_id, body.online)
+    return registry.update_meta(device_id, body.title, body.room, body.scope).to_dict()
+
+
 @app.delete("/api/devices/{device_id}", status_code=204)
 def delete_device(device_id: str):
     _managed(device_id)
@@ -139,6 +152,56 @@ def set_signal(device_id: str, body: SignalWrite):
     except KeyError as exc:
         raise HTTPException(404, str(exc))
     return {"changed": changed}
+
+
+# ---------- правила ----------
+
+@app.get("/api/rules")
+def rules():
+    return [r.model_dump(mode="json") for r in store.all()]
+
+
+@app.post("/api/rules", status_code=201)
+def create_rule(rule: Rule):
+    if rule.id in store.rules:
+        raise HTTPException(409, f"rule exists: {rule.id}")
+    return store.put(rule).model_dump(mode="json")
+
+
+@app.put("/api/rules/{rule_id}")
+def update_rule(rule_id: str, rule: Rule):
+    _rule(rule_id)
+    rule.id = rule_id
+    return store.put(rule).model_dump(mode="json")
+
+
+@app.delete("/api/rules/{rule_id}", status_code=204)
+def delete_rule(rule_id: str):
+    _rule(rule_id)
+    store.delete(rule_id)
+
+
+@app.post("/api/rules/{rule_id}/run")
+async def run_rule(rule_id: str):
+    """Ручной запуск действий правила (кнопка «выполнить сейчас»): условия проверяются, триггер нет."""
+    return await engine.execute(_rule(rule_id), None)
+
+
+@app.get("/api/rules/{rule_id}/ujin")
+def export_rule(rule_id: str):
+    serials = {m.id: m.ujin["sn"] for m in registry.devices.values() if m.ujin}
+    return to_ujin_autoscript(_rule(rule_id), serials)
+
+
+@app.get("/api/runs")
+def runs(limit: int = 50):
+    return list(engine.runs)[-limit:]
+
+
+@app.get("/api/notifications")
+def notifications(target: str | None = None, limit: int = 50):
+    rows = [n for n in engine.notifications if target in (None, n["target"])]
+    return rows[-limit:]
 
 
 # ---------- симуляция и события ----------
@@ -181,6 +244,13 @@ async def ws_events(ws: WebSocket):
         pass
     finally:
         bus.unsubscribe(q)
+
+
+def _rule(rule_id: str) -> Rule:
+    try:
+        return store.get(rule_id)
+    except KeyError:
+        raise HTTPException(404, f"rule not found: {rule_id}")
 
 
 def _managed(device_id: str):
