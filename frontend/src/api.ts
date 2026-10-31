@@ -74,7 +74,7 @@ export type Notification = {
 export type BusEvent = {
   seq: number
   ts: number
-  kind: 'signal' | 'log' | 'device' | 'rule' | 'notify'
+  kind: 'signal' | 'log' | 'device' | 'rule' | 'notify' | 'incident' | 'ticket' | 'ujin'
   device_id: string | null
   signal?: string
   value?: number | string
@@ -88,6 +88,109 @@ export type BusEvent = {
   target?: string
   level?: string
   id?: string
+}
+
+export type IncidentVerdict = {
+  source: string
+  category: string
+  level: number
+  confidence: number
+  damage: number | null
+  people: number | null
+  false_alarm: number | null
+  reasons: string[]
+}
+
+export type Incident = {
+  id: string
+  ts: number
+  device_id: string
+  device_title: string
+  room: string
+  scope: 'apartment' | 'building'
+  signal: string
+  title: string
+  status: 'confirmed' | 'dispatched' | 'logged'
+  reasoning: string[]
+  verdict: IncidentVerdict | null
+  decision: string | null
+  ticket_id: string | null
+  rule_id: string | null
+}
+
+export type TicketStatus = 'draft' | 'new' | 'accepted' | 'in_progress' | 'done' | 'closed' | 'cancelled'
+
+export type Ticket = {
+  id: string
+  created: number
+  status: TicketStatus
+  category: string
+  level: number
+  title: string
+  description: string
+  address: string
+  device_id: string | null
+  incident_id: string | null
+  rule_id: string | null
+  contractor_id: string | null
+  contractor_name: string | null
+  sla_due: number | null
+  needs_confirmation: 'resident' | 'concierge' | null
+  reasoning: string[]
+  history: { ts: number; status: TicketStatus; actor: string; note: string }[]
+}
+
+export type Contractor = {
+  id: string
+  name: string
+  category: string
+  phone: string
+  sla_minutes: number
+  hours: string
+  channel: string
+  call_out_price: number
+}
+
+export type Dictionaries = { categories: Record<string, string>; statuses: Record<string, string> }
+
+export type LintIssue = { level: string; code: string; message: string }
+export type LintReport = { ok: boolean; errors: number; warnings: number; issues: LintIssue[] }
+
+export type RunAction = {
+  type: 'set_signal' | 'notify' | 'dispatch' | string
+  status: 'ok' | 'error' | 'conflict' | string
+  device_id?: string
+  signal?: string
+  value?: unknown
+  target?: string
+  message?: string
+  detail?: string
+  attempts?: number
+}
+
+export type RunRecord = {
+  ts: number
+  status: string
+  reason?: string
+  actions: RunAction[]
+}
+
+export type SimulateReport = {
+  rule_id: string
+  passed: boolean
+  verdict: string
+  sim_time: string | null
+  runs: RunRecord[]
+  notifications: Notification[]
+  lint: LintReport
+}
+
+export type CompiledRule = {
+  intent: { intent: string; confidence?: number }
+  rule: Rule | null
+  answer?: string
+  lint?: LintReport
+  explain?: string
 }
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
@@ -130,9 +233,24 @@ export const api = {
   runRule: (id: string) => json(`/api/rules/${id}/run`, { method: 'POST' }),
   exportRule: (id: string) => json<Record<string, unknown>>(`/api/rules/${id}/ujin`),
 
-  notifications: () => json<Notification[]>('/api/notifications?limit=100'),
+  notifications: (target?: string) =>
+    json<Notification[]>(`/api/notifications?limit=100${target ? `&target=${target}` : ''}`),
   events: (limit = 100) => json<BusEvent[]>(`/api/events?limit=${limit}`),
   sim: (patch: { running?: boolean; speed?: number }) => json('/api/sim', { method: 'POST', ...body(patch) }),
+
+  incidents: (limit = 50) => json<Incident[]>(`/api/incidents?limit=${limit}`),
+  tickets: () => json<Ticket[]>('/api/tickets'),
+  moveTicket: (id: string, status: TicketStatus, actor = 'консьерж', note = '') =>
+    json<Ticket>(`/api/tickets/${id}/transition`, { method: 'POST', ...body({ status, actor, note }) }),
+  contractors: () => json<Contractor[]>('/api/contractors'),
+  dictionaries: () => json<Dictionaries>('/api/dictionaries'),
+
+  lint: (rule: Rule) => json<LintReport>('/api/lint', { method: 'POST', ...body(rule) }),
+  simulate: (rule: Rule, ticks = 15) =>
+    json<SimulateReport>('/api/simulate', { method: 'POST', ...body({ rule, ticks }) }),
+  explainRule: (id: string) => json<{ text: string }>(`/api/rules/${id}/explain`),
+  compile: (text: string, role: 'resident' | 'uk' = 'resident') =>
+    json<CompiledRule>('/api/nl/compile', { method: 'POST', ...body({ text, role }) }),
 }
 
 export function openEvents(onEvent: (e: BusEvent) => void): () => void {

@@ -1,32 +1,65 @@
-# React + TypeScript + Vite
+# Сценарист — фронтенд
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React 19 + TypeScript + Vite + Tailwind 4. Одна кодовая база, три поверхности:
 
-Currently, two official plugins are available:
+- `#/resident` — **житель**, мобильный экран: датчики, сценарии, разбор правила, события;
+- `#/uk` — **управляющая компания**, диспетчерская: инциденты, заявки, устройства, песочница;
+- `#/studio` — **студия**: конструктор устройств и блочный редактор правил (светлая тема).
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Корневой маршрут `#/` — выбор роли.
 
-## React Compiler
+## Запуск
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm ci
+npm run dev        # http://localhost:5173, /api и /ws проксируются на localhost:8000
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Бэкенд поднимается отдельно (`backend/`, FastAPI) или целиком через `docker compose up`.
+Без бэкенда интерфейс не падает: включается демо-режим с запасным набором данных
+(`src/mock/fallback.ts`), в шапке появляется пометка «демо-данные».
+
+```bash
+npm run build      # tsc -b && vite build
+npm run lint       # oxlint
+```
+
+## Структура
+
+```
+src/
+  api.ts                 клиент HTTP и WebSocket, типы бэкенда
+  store.ts               zustand: устройства, правила, события, уведомления
+  devices.tsx            конструктор устройств (студия)
+  rules.tsx              редактор правил, линтер, прогон (студия)
+  screens.tsx            сборка студии
+  ui.tsx                 примитивы светлой темы (студия)
+
+  app/                   роутинг по хэшу, выбор роли, загрузка данных
+  shared/                тёмная дизайн-система: токены, иконки, форматирование, уровни
+  features/resident/     мобильное приложение жителя
+  features/manager/      кабинет УК
+  mock/fallback.ts       данные демо-режима
+```
+
+## Тёмная тема
+
+Токены объявлены в `src/index.css` через `@theme`: `base`, `surface`, `raised`, `field`,
+`line`, `accent`, `ink*`, `ok`, `sev-info|minor|major|crit` и мягкие подложки `*-soft`.
+Классы Tailwind собираются только из литералов — динамически склеенные имена не попадают
+в сборку, поэтому карты стилей в `shared/severity.ts` и `shared/ticket-status.ts` записаны
+полными строками.
+
+Уровни инцидентов совпадают с политикой автодиспетчера из `docs/concept.md`:
+0 — журнал, 1 — минор, 2 — мажор, 3 — критично.
+
+## Что откуда берётся
+
+| Экран | Источник |
+|---|---|
+| Датчики, плитки, песочница | `GET /api/devices`, `POST /api/devices/:id/command`, `inject`, WebSocket `/ws` |
+| Сценарии жителя | `GET/PUT /api/rules`, `POST /api/simulate`, `GET /api/rules/:id/explain` |
+| Создание правила словами | `POST /api/nl/compile` (LLM + линтер) |
+| События жителя | `GET /api/notifications?target=resident` |
+| Инциденты и вердикты Jev | `GET /api/incidents` |
+| Заявки и подрядчики | `GET /api/tickets`, `POST /api/tickets/:id/transition`, `GET /api/contractors` |
