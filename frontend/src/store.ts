@@ -1,11 +1,16 @@
 import { create } from 'zustand'
 import { api, openEvents, type BusEvent, type Device, type Family, type Notification, type Rule } from './api'
+import { isTelemetry } from './shared/telemetry'
+
+/** Сколько держим каждого вида событий: телеметрия идёт отдельным буфером и не вытесняет важное. */
+const EVENTS_KEEP = 300
 
 type State = {
   devices: Device[]
   families: Family[]
   rules: Rule[]
   events: BusEvent[]
+  telemetry: BusEvent[]
   notifications: Notification[]
   error: string | null
   load: () => Promise<void>
@@ -20,6 +25,7 @@ export const useStore = create<State>((set, get) => ({
   families: [],
   rules: [],
   events: [],
+  telemetry: [],
   notifications: [],
   error: null,
 
@@ -28,10 +34,18 @@ export const useStore = create<State>((set, get) => ({
       api.devices(),
       api.families(),
       api.rules(),
-      api.events(150),
+      api.events(EVENTS_KEEP),
       api.notifications(),
     ])
-    set({ devices, families, rules, events, notifications })
+    const noisy = events.map((e) => isTelemetry(e, devices))
+    set({
+      devices,
+      families,
+      rules,
+      events: events.filter((_, i) => !noisy[i]),
+      telemetry: events.filter((_, i) => noisy[i]),
+      notifications,
+    })
   },
 
   reloadDevices: async () => set({ devices: await api.devices() }),
@@ -40,7 +54,8 @@ export const useStore = create<State>((set, get) => ({
 
   connect: () =>
     openEvents((e) => {
-      set((s) => ({ events: [...s.events.slice(-299), e] }))
+      if (isTelemetry(e, get().devices)) set((s) => ({ telemetry: [...s.telemetry.slice(1 - EVENTS_KEEP), e] }))
+      else set((s) => ({ events: [...s.events.slice(1 - EVENTS_KEEP), e] }))
       if (e.kind === 'signal' && e.device_id) {
         set((s) => ({
           devices: s.devices.map((d) =>

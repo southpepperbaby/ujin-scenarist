@@ -32,6 +32,7 @@ type ManagerAppProps = {
 export function ManagerApp({ path, demo }: ManagerAppProps) {
   const devices = useStore((state) => state.devices)
   const events = useStore((state) => state.events)
+  const telemetry = useStore((state) => state.telemetry)
   const dispatch = useDispatchData(demo)
   const head = TITLES[path] ?? TITLES['/uk']
   const openIncidents = dispatch.tickets.filter((ticket) => ticket.status === 'draft').length
@@ -42,7 +43,7 @@ export function ManagerApp({ path, demo }: ManagerAppProps) {
   else if (path === '/uk/tickets') page = <TicketsPage dispatch={dispatch} />
   else if (path === '/uk/devices') page = <DevicesPage devices={devices} />
   else if (path === '/uk/rules') page = <RulesPage devices={devices} />
-  else if (path === '/uk/sandbox') page = <SandboxPage devices={devices} events={events} />
+  else if (path === '/uk/sandbox') page = <SandboxPage devices={devices} events={events} telemetry={telemetry} />
   else page = <DashboardPage devices={devices} dispatch={dispatch} />
 
   return (
