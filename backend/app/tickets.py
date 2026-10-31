@@ -18,19 +18,10 @@ import httpx
 from pydantic import BaseModel, Field
 
 from . import config
+from .dictionaries import CATEGORY_TITLES  # noqa: F401  отдаётся дальше как tickets.CATEGORY_TITLES
 from .bus import EventBus
 
 Category = Literal["plumbing", "electric", "access", "lift", "fire", "heating", "general"]
-
-CATEGORY_TITLES = {
-    "plumbing": "Сантехника и водоснабжение",
-    "electric": "Электрика и освещение",
-    "access": "Ворота, шлагбаум, СКУД",
-    "lift": "Лифтовое хозяйство",
-    "fire": "Пожарная безопасность",
-    "heating": "Отопление и вентиляция",
-    "general": "Общие работы",
-}
 
 Status = Literal["draft", "new", "accepted", "in_progress", "done", "closed", "cancelled"]
 

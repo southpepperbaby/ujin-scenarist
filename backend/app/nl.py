@@ -17,9 +17,10 @@ import json
 from pydantic import ValidationError
 
 from . import ai
+from .dictionaries import CATEGORY_TITLES
 from .emu import DeviceRegistry
 from .linter import lint, summary
-from .rules import OP_TITLES, Rule, SetSignal
+from .rules import NOW, OP_TITLES, Rule, SetSignal
 
 SYSTEM = """Ты компилятор сценариев умного дома. Переводишь просьбу человека в JSON по схеме.
 Используй ТОЛЬКО устройства и сигналы из каталога. Значения бери из layout или диапазона сигнала.
@@ -41,7 +42,7 @@ SYSTEM = """Ты компилятор сценариев умного дома. 
   "actions": [
     {"type": "set_signal", "device": "dev_N", "signal": "имя", "value": 0, "delay_s": 0},
     {"type": "notify", "target": "resident" | "concierge", "level": "info" | "warning" | "critical", "message": "текст"},
-    {"type": "dispatch", "category": null, "note": "что передать подрядчику"}
+    {"type": "dispatch", "category": null, "device": "dev_N или null", "note": "что передать подрядчику"}
   ]
 }
 Для разовой команды верни тот же формат с intent "command" и trigger: null.
@@ -98,7 +99,7 @@ async def compile_text(text: str, registry: DeviceRegistry, rules: list[Rule], r
         except (ValidationError, KeyError, TypeError, ValueError) as exc:
             last_error = str(exc)[:500]
             continue
-        check = summary(lint(rule, rules, registry)) if rule.trigger.device_id != "__now__" else {"ok": True,
+        check = summary(lint(rule, rules, registry)) if rule.trigger.device_id != NOW else {"ok": True,
                                                                                                     "issues": []}
         # Пересказ строится только из собранного правила: человек подтверждает то, что будет исполнено,
         # а не то, что модель думает о своём ответе. Объяснение от LLM не используется намеренно.
@@ -120,7 +121,7 @@ def _to_rule(raw: dict, p: ai.Pseudonymizer, role: str, intent: str, text: str) 
         actions.append(a)
     trig = raw.get("trigger")
     if intent == "command" or not trig:
-        trigger = {"device_id": "__now__", "signal": "__now__", "op": "eq", "value": 1}
+        trigger = {"device_id": NOW, "signal": NOW, "op": "eq", "value": 1}
     else:
         trigger = ref(trig)
     return Rule.model_validate({
@@ -148,21 +149,16 @@ def explain(rule: Rule, registry: DeviceRegistry) -> str:
     этого нет и в правиле.
     """
     def dev(i):
-        m = registry.devices.get(i)
-        return m.title if m else f"неизвестное устройство {i}"
-
-    def sig(i, s):
-        m = registry.devices.get(i)
-        return m.device.signals.get(s) if m else None
+        return registry.title(i, f"неизвестное устройство {i}")
 
     def sig_title(i, s):
-        x = sig(i, s)
+        x = registry.signal(i, s)
         return x.title.lower() if x else s
 
     def val(i, s, v):
-        x = sig(i, s)
+        x = registry.signal(i, s)
         if x and x.layout:
-            return f"«{x.layout.get(v, x.layout.get(str(v), str(v)))}»"
+            return f"«{registry.label(i, s, v)}»"
         return f"{v}{' ' + x.measure if x and x.measure else ''}"
 
     def compare(ref, verb="становится") -> str:
@@ -173,7 +169,7 @@ def explain(rule: Rule, registry: DeviceRegistry) -> str:
                f"{val(ref.device_id, ref.signal, ref.value)}"
 
     t = rule.trigger
-    head = "Сейчас один раз" if t.device_id == "__now__" else f"Когда {compare(t)}"
+    head = "Сейчас один раз" if t.device_id == NOW else f"Когда {compare(t)}"
     conds = [f"время с {c.start} до {c.end}" if c.type == "time" else compare(c, "равно") for c in rule.conditions]
     acts = []
     for a in rule.actions:
@@ -182,7 +178,6 @@ def explain(rule: Rule, registry: DeviceRegistry) -> str:
         elif a.type == "notify":
             act = f"{TARGET_WORDS.get(a.target, a.target)}{LEVEL_WORDS.get(a.level, '')}: «{a.message}»"
         else:
-            from .tickets import CATEGORY_TITLES
             who = f"подрядчика «{CATEGORY_TITLES.get(a.category, a.category)}»" if a.category else "подходящего подрядчика"
             act = f"вызвать {who} через автодиспетчер" + (f" с пометкой «{a.note}»" if a.note else "")
         if a.delay_s:
@@ -194,9 +189,7 @@ def explain(rule: Rule, registry: DeviceRegistry) -> str:
 
 def answer_question(text: str, registry: DeviceRegistry) -> str:
     """Короткая сводка состояния дома: на вопрос отвечаем данными, а не фантазией модели."""
-    from .dispatcher import FAULTS
-    alarms = [title for m in registry.devices.values()
-              for s, bad, title in FAULTS.get(m.family, []) if m.state().get(s) == bad]
+    alarms = [title for m in registry.devices.values() for title in m.alarms()]
     offline = [m.title for m in registry.devices.values() if not m.online]
     parts = ["Аварий нет." if not alarms else "Сейчас: " + ", ".join(alarms) + "."]
     if offline:

@@ -22,13 +22,14 @@ import asyncio
 import time
 import uuid
 from datetime import datetime
-from typing import Any
 
 from . import ai
 from .bus import Event, EventBus
+from .dictionaries import CATEGORY_CRITERIA, FAULTS
 from .emu import DeviceRegistry
 from pydantic import BaseModel
 
+from .rules import NOW
 from .tickets import CATEGORY_TITLES, Ticket, TicketService
 
 DEBOUNCE = 3.0
@@ -38,17 +39,6 @@ DAILY_LIMIT = 3
 EXPENSIVE = 1500
 
 LEVEL_TITLES = ["информация", "минор", "мажор", "критично"]
-
-# Какие значения сигналов считаются неисправностью: семейство → [(сигнал, значение, название)].
-FAULTS: dict[str, list[tuple[str, Any, str]]] = {
-    "leak": [("leak", 1, "Протечка воды"), ("tamper", 1, "Вскрыт корпус датчика протечки")],
-    "fire": [("alarm", 1, "Пожарная тревога"), ("fault", 1, "Неисправность пожарного датчика"),
-             ("tamper", 1, "Вскрыт корпус пожарного датчика")],
-    "valve": [("jammed", 1, "Заклинило привод клапана")],
-    "barrier": [("alarm", 1, "Авария шлагбаума")],
-    "thermostat": [("fault", 1, "Авария датчика температуры")],
-    "elevator": [("emergency", 1, "Лифт остановлен аварийно")],
-}
 
 # Известные неисправности: (семейство, сигнал) → (категория, уровень). Здесь решает таблица, без ИИ.
 KNOWN: dict[tuple[str, str], tuple[str, int]] = {
@@ -64,17 +54,6 @@ FALLBACK = {
     "leak": ("plumbing", 3), "valve": ("plumbing", 2), "fire": ("fire", 3), "barrier": ("access", 2),
     "thermostat": ("heating", 1), "elevator": ("lift", 2), "light": ("electric", 1), "counter": ("general", 1),
 }
-
-CATEGORY_CRITERIA = {
-    "plumbing": "Сантехника: протечки, трубы, краны, клапаны воды, водоснабжение и канализация",
-    "electric": "Электрика: свет, розетки, автоматы, электропитание устройств",
-    "access": "Въезд и доступ: шлагбаумы, ворота, домофоны, замки, СКУД",
-    "lift": "Лифты: остановка, застревание, неисправность кабины или дверей",
-    "fire": "Пожарная безопасность: дым, пожарные датчики, сигнализация, оповещение",
-    "heating": "Отопление, вентиляция, кондиционирование, термостаты",
-    "general": "Всё остальное, что не подходит под категории выше: осмотр дежурным мастером",
-}
-
 
 class Policy(BaseModel):
     """Настройки УК для автодиспетчера."""
@@ -287,8 +266,7 @@ class Dispatcher:
                 "false_alarm": false_alarm, "reasons": reasons}
 
     def _other_alarms(self, managed) -> list[str]:
-        return [title for m in self.registry.devices.values() if m.id != managed.id
-                for s, b, title in FAULTS.get(m.family, []) if m.state().get(s) == b]
+        return [title for m in self.registry.devices.values() if m.id != managed.id for title in m.alarms()]
 
     def _state(self, managed, signal, title, held_s, others) -> dict:
         """Состояние для Jev без персональных данных: тип устройства, помещение, сигналы, соседние тревоги."""
@@ -339,13 +317,48 @@ class Dispatcher:
     # ---------- действие правила ----------
 
     async def from_rule(self, rule, action, run: dict) -> dict:
-        trig = rule.trigger
-        managed = self.registry.get(trig.device_id)
-        title = next((t for s, b, t in FAULTS.get(managed.family, []) if s == trig.signal),
-                     f"{managed.title}: {trig.signal}")
-        inc = await self.handle(trig.device_id, trig.signal, title, rule=rule,
-                                forced_category=action.category, note=action.note)
+        device_id = action.device_id or _rule_device(rule)
+        if device_id is None or device_id not in self.registry.devices:
+            inc = await self.manual(rule, action)
+        else:
+            managed = self.registry.get(device_id)
+            trig = rule.trigger
+            signal = trig.signal if trig.device_id == device_id else None
+            title = next((t for s, b, t in FAULTS.get(managed.family, []) if s == signal),
+                         f"{managed.title}: нужен мастер")
+            inc = await self.handle(device_id, signal, title, rule=rule,
+                                    forced_category=action.category, note=action.note)
         return {"incident_id": inc["id"], "decision": inc["decision"], "ticket_id": inc["ticket_id"]}
+
+    async def manual(self, rule, action) -> dict:
+        """Просьба «вызови сантехника» без устройства: черновик заявки, отправляет тот, кто попросил."""
+        category = action.category or "general"
+        scope = rule.scope
+        title = action.note or f"Нужен мастер: {CATEGORY_TITLES[category].lower()}"
+        inc = {
+            "id": "I-" + uuid.uuid4().hex[:6].upper(), "ts": time.time(), "device_id": None,
+            "device_title": None, "room": None, "scope": scope, "signal": None, "title": title,
+            "status": "confirmed", "verdict": None, "decision": None, "ticket_id": None, "rule_id": rule.id,
+            "reasoning": [f"Мастера попросили напрямую: «{rule.title}». Устройство не указано."],
+        }
+        self.incidents[inc["id"]] = inc
+        contractor = self.tickets.contractor_for(category)
+        confirm_by = "resident" if scope == "apartment" else "concierge"
+        ticket = Ticket(category=category, level=1, title=title, description=title + ".", scope=scope,
+                        incident_id=inc["id"], rule_id=rule.id, contractor_id=contractor.id,
+                        needs_confirmation=confirm_by, reasoning=inc["reasoning"])
+        inc["reasoning"].append("Плановый вызов: готовый черновик, отправка одной кнопкой.")
+        await self.tickets.create(ticket)
+        self.notify(confirm_by, f"{title}. Заявка для «{contractor.name}» готова: отправить или отменить?",
+                    "info", extra={"ticket_id": ticket.id})
+        return self._decide(inc, "draft", ticket=ticket)
+
+
+def _rule_device(rule) -> str | None:
+    """Устройство для заявки: триггер правила, а у разовой команды первое устройство из действий."""
+    if rule.trigger.device_id != NOW:
+        return rule.trigger.device_id
+    return next((a.device_id for a in rule.actions if getattr(a, "device_id", None)), None)
 
 
 def _decision_title(inc: dict) -> str:
