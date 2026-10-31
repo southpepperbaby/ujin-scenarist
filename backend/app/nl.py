@@ -48,15 +48,18 @@ SYSTEM = """Ты компилятор сценариев умного дома. 
 Для разовой команды верни тот же формат с intent "command" и trigger: null.
 Время суток задавай условием type=time (ночь 22:00-07:00, утро 07:00-10:00, день 10:00-18:00, вечер 18:00-22:00).
 dispatch означает заявку подрядчику (сантехник, электрик и т.п.), используй его, если человек просит вызвать мастера.
+Если человек сообщает о поломке («не закрывается до конца», «сломался», «не работает», «застрял»), это intent
+"command" с одним действием dispatch: device = сломанное устройство, note = что не так его словами.
 Если просьбу нельзя выполнить имеющимися устройствами, верни {"error": "почему"}."""
 
 
 def catalog(registry: DeviceRegistry, alias, role: str) -> list[dict]:
-    """Каталог для LLM: псевдонимы вместо id, без серийников и привязок к стенду."""
+    """Каталог для LLM: псевдонимы вместо id, без серийников и привязок к стенду.
+
+    Общедомовые устройства видит и житель: так он может сообщить «шлагбаум не закрывается до конца».
+    """
     out = []
     for m in registry.devices.values():
-        if role == "resident" and m.scope == "building":
-            continue
         signals = []
         for s in m.device.signals.values():
             if s.kind == "system":
@@ -179,7 +182,8 @@ def explain(rule: Rule, registry: DeviceRegistry) -> str:
             act = f"{TARGET_WORDS.get(a.target, a.target)}{LEVEL_WORDS.get(a.level, '')}: «{a.message}»"
         else:
             who = f"подрядчика «{CATEGORY_TITLES.get(a.category, a.category)}»" if a.category else "подходящего подрядчика"
-            act = f"вызвать {who} через автодиспетчер" + (f" с пометкой «{a.note}»" if a.note else "")
+            about = f" по устройству «{dev(a.device_id)}»" if a.device_id else ""
+            act = f"вызвать {who}{about} через автодиспетчер" + (f" с пометкой «{a.note}»" if a.note else "")
         if a.delay_s:
             act = f"через {a.delay_s:g} с {act}"
         acts.append(act)
