@@ -13,9 +13,11 @@ from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field, field_validator
 
+from .dictionaries import CATEGORY_WORDS, OP_TITLES  # noqa: F401  OP_TITLES берут из rules
+
+NOW = "__now__"        # триггер разовой команды: «сделай сейчас», а не «когда случится»
 Op = Literal["eq", "ne", "gt", "gte", "lt", "lte", "changed"]
 
-OP_TITLES = {"eq": "=", "ne": "≠", "gt": ">", "gte": "≥", "lt": "<", "lte": "≤", "changed": "изменился"}
 
 
 class SignalRef(BaseModel):
@@ -76,6 +78,7 @@ class Dispatch(BaseModel):
     """Заявка подрядчику. Категорию и уровень решает автодиспетчер, если не заданы явно."""
     type: Literal["dispatch"] = "dispatch"
     category: str | None = None
+    device_id: str | None = None            # к чему вызывать мастера; нет: устройство из триггера или действий
     note: str = ""
     delay_s: float = 0
 
@@ -90,17 +93,6 @@ class Dispatch(BaseModel):
             if low == code or any(w in low for w in words):
                 return code
         return None
-
-
-CATEGORY_WORDS = {
-    "plumbing": ("сантех", "вод", "труб", "протеч", "клапан"),
-    "electric": ("электр", "свет", "розет"),
-    "access": ("ворот", "шлагбаум", "домофон", "замок", "скуд"),
-    "lift": ("лифт",),
-    "fire": ("пожар", "дым"),
-    "heating": ("отоплен", "вентиляц", "кондиц", "термостат", "тепл"),
-    "general": ("мастер", "общ"),
-}
 
 
 Action = Annotated[Union[SetSignal, Notify, Dispatch], Field(discriminator="type")]

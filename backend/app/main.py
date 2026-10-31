@@ -19,7 +19,7 @@ from .dispatcher import FAULTS, Dispatcher, Policy
 from .emu import REGISTRY, DeviceRegistry, family_info
 from .engine import Engine
 from .linter import lint, summary
-from .rules import Rule, RuleStore, to_ujin_autoscript
+from .rules import NOW, Rule, RuleStore, to_ujin_autoscript
 from .seed import SEED_DEVICES, seed_rules
 from .simulate import simulate
 from . import mock_contractor
@@ -334,7 +334,7 @@ async def nl_confirm(body: NLConfirm):
     """
     rule = body.rule
     explanation = nl.explain(rule, registry)
-    if rule.trigger.device_id == "__now__":
+    if rule.trigger.device_id == NOW:
         return {"kind": "command", "explanation": explanation, "run": await nl.execute_now(rule, engine)}
     report = summary(lint(rule, store.all(), registry))
     rule.enabled = report["ok"]
