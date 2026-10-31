@@ -146,7 +146,8 @@ class Dispatcher:
             return self._decide(inc, "duplicate", ticket=open_ticket)
         if self.tickets.count_today(device_id) >= DAILY_LIMIT:
             why.append(f"Лимит {DAILY_LIMIT} заявки в сутки на устройство исчерпан, нужен взгляд человека.")
-            self.notify("concierge", f"{title}: лимит автозаявок исчерпан, проверьте вручную.", "warning",
+            who = "resident" if managed.scope == "apartment" else "concierge"
+            self.notify(who, f"{title}: лимит автозаявок исчерпан, проверьте вручную.", "warning",
                         extra={"incident_id": inc["id"]})
             return self._decide(inc, "limit")
 
@@ -157,8 +158,9 @@ class Dispatcher:
         contractor = self.tickets.contractor_for(verdict["category"])
 
         if conf < LOW:
-            why.append(f"Уверенность {conf:.0%} ниже порога {LOW:.0%}: только журнал и консьерж.")
-            self.notify("concierge", f"{title}: не удалось уверенно определить проблему, нужна проверка.",
+            who = "resident" if managed.scope == "apartment" else "concierge"
+            why.append(f"Уверенность {conf:.0%} ниже порога {LOW:.0%}: только журнал и вопрос ответственному.")
+            self.notify(who, f"{title}: не удалось уверенно определить проблему, проверьте устройство.",
                         "warning", extra={"incident_id": inc["id"]})
             return self._decide(inc, "log")
         if level == 0:
@@ -167,8 +169,9 @@ class Dispatcher:
 
         ticket = Ticket(category=verdict["category"], level=level, title=title,
                         description=self._description(managed, title, verdict, note),
-                        device_id=device_id, incident_id=inc["id"], rule_id=inc["rule_id"],
+                        device_id=device_id, scope=managed.scope, incident_id=inc["id"], rule_id=inc["rule_id"],
                         contractor_id=contractor.id, reasoning=why)
+        # Некритичное в квартире остаётся у жителя, общедомовое решает УК.
         confirm_by = "resident" if managed.scope == "apartment" else "concierge"
 
         if conf < HIGH:
@@ -259,11 +262,9 @@ class Dispatcher:
     def _notify_people(self, managed, ticket: Ticket, decision: str) -> None:
         extra = {"ticket_id": ticket.id}
         if decision == "draft":
-            # Черновик видят обе стороны: отправить или отменить может и житель, и УК.
+            # Некритичное не уходит в УК: черновик видит тот, кто отвечает за устройство.
             ask = f"{ticket.title}. Заявка для «{ticket.contractor_name}» готова: отправить или отменить?"
-            self.notify("concierge", ask, "warning", extra=extra)
-            if managed.scope == "apartment":
-                self.notify("resident", ask, "warning", extra=extra)
+            self.notify(ticket.needs_confirmation or "concierge", ask, "warning", extra=extra)
             return
         self.notify("concierge", f"{ticket.title}: заявка {ticket.id} отправлена «{ticket.contractor_name}».",
                     "critical" if ticket.level == 3 else "warning", extra=extra)

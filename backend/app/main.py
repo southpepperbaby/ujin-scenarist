@@ -9,9 +9,10 @@ import json
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
-from . import ai, config, nl
+from . import ai, config, gherkin, nl
 from .bus import EventBus
 from .dispatcher import Dispatcher
 from .emu import REGISTRY, DeviceRegistry, family_info
@@ -21,7 +22,7 @@ from .rules import Rule, RuleStore, to_ujin_autoscript
 from .seed import SEED_DEVICES, seed_rules
 from .simulate import simulate
 from .mock_contractor import router as mock_contractor_router
-from .tickets import CATEGORY_TITLES, STATUS_TITLES, Contractor, TicketService, verify
+from .tickets import CATEGORY_TITLES, STATUS_TITLES, Contractor, TicketService, verify, visible_to
 from .ujin_bridge import UjinBridge
 
 bus = EventBus()
@@ -227,6 +228,25 @@ async def simulate_rule(body: SimRequest):
     return report
 
 
+@app.get("/api/rules/{rule_id}/feature", response_class=PlainTextResponse)
+def rule_feature(rule_id: str):
+    """Сценарий проверки правила на Gherkin (русский)."""
+    return gherkin.to_feature(_rule(rule_id), registry)
+
+
+class FeatureRun(BaseModel):
+    rule: Rule
+    feature: str | None = None
+
+
+@app.post("/api/gherkin/run")
+async def run_feature(body: FeatureRun):
+    text = body.feature or gherkin.to_feature(body.rule, registry)
+    report = await gherkin.run_feature(text, body.rule, registry, store.all())
+    report["text"] = text
+    return report
+
+
 @app.get("/api/rules/{rule_id}/explain")
 def explain_rule(rule_id: str):
     return {"text": nl.explain(_rule(rule_id), registry)}
@@ -282,13 +302,19 @@ def notifications(target: str | None = None, limit: int = 50):
 # ---------- инциденты, заявки, подрядчики ----------
 
 @app.get("/api/incidents")
-def incidents(limit: int = 50):
-    return sorted(dispatcher.incidents.values(), key=lambda i: i["ts"])[-limit:]
+def incidents(limit: int = 50, role: str | None = None):
+    rows = sorted(dispatcher.incidents.values(), key=lambda i: i["ts"])
+    if role == "resident":
+        rows = [i for i in rows if i["scope"] == "apartment"]
+    elif role == "uk":
+        rows = [i for i in rows if i["scope"] == "building" or (i.get("verdict") or {}).get("level", 0) >= 3]
+    return rows[-limit:]
 
 
 @app.get("/api/tickets")
-def list_tickets():
-    return [t.model_dump(mode="json") for t in sorted(tickets.tickets.values(), key=lambda t: t.created)]
+def list_tickets(role: str | None = None):
+    rows = sorted(tickets.tickets.values(), key=lambda t: t.created)
+    return [t.model_dump(mode="json") for t in rows if role is None or visible_to(t, role)]
 
 
 class TicketMove(BaseModel):
