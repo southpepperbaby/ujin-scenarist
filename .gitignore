@@ -12,3 +12,6 @@ secrets/
 token.txt
 backend/data/
 доступы.json
+
+# рабочие копии субагентов Claude Code
+.claude/
