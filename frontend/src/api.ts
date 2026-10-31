@@ -251,6 +251,7 @@ export const api = {
   explainRule: (id: string) => json<{ text: string }>(`/api/rules/${id}/explain`),
   compile: (text: string, role: 'resident' | 'uk' = 'resident') =>
     json<CompiledRule>('/api/nl/compile', { method: 'POST', ...body({ text, role }) }),
+  executeNow: (rule: Rule) => json<RunRecord>('/api/nl/execute', { method: 'POST', ...body(rule) }),
 }
 
 export function openEvents(onEvent: (e: BusEvent) => void): () => void {

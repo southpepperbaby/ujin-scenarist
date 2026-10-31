@@ -12,6 +12,7 @@ type SidebarProps = {
 function items(drafts: number): NavItem[] {
   return [
     { to: '/uk', label: 'Дашборд', icon: 'grid' },
+    { to: '/uk/assistant', label: 'Ассистент', icon: 'spark' },
     { to: '/uk/incidents', label: 'Инциденты', icon: 'alert' },
     { to: '/uk/tickets', label: 'Заявки', icon: 'wrench', badge: drafts },
     { to: '/uk/devices', label: 'Устройства', icon: 'building' },

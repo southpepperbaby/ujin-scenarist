@@ -7,8 +7,8 @@ import { Button } from '../../shared/ui/Button'
 import { Glass } from '../../shared/ui/Glass'
 import { Icon } from '../../shared/ui/Icon'
 import { TypingDots } from '../../shared/ui/TypingDots'
-import { RuleBlock } from './RuleBlock'
-import { ruleLines } from './rule-lines'
+import { RuleBlock } from '../../shared/rule/RuleBlock'
+import { ruleLines } from '../../shared/rule/rule-lines'
 
 const EXAMPLES = [
   'Если ночью на кухне протечка — перекрой воду и включи свет в коридоре',

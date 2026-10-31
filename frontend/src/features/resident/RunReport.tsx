@@ -1,34 +1,10 @@
-import type { Device, RunAction, SimulateReport } from '../../api'
-import { signalTitle, valueLabel, deviceById } from '../../store'
+import type { Device, SimulateReport } from '../../api'
+import {
+  ACTION_STATUS_COLOR,
+  ACTION_STATUS_ICON,
+  describeAction,
+} from '../../shared/rule/describe-action'
 import { Icon } from '../../shared/ui/Icon'
-
-const STATUS_ICON: Record<string, 'check' | 'close' | 'alert'> = {
-  ok: 'check',
-  error: 'close',
-  conflict: 'alert',
-}
-
-const STATUS_COLOR: Record<string, string> = {
-  ok: 'text-ok',
-  error: 'text-sev-crit',
-  conflict: 'text-sev-minor',
-}
-
-/** Шаг прогона описываем словами: бэкенд отдаёт сырой тип действия, а не готовый текст. */
-function describeAction(action: RunAction, devices: Device[]): string {
-  if (action.type === 'set_signal' && action.device_id && action.signal) {
-    const device = deviceById(devices, action.device_id)?.title ?? action.device_id
-    const name = signalTitle(devices, action.device_id, action.signal)
-    const value = valueLabel(devices, action.device_id, action.signal, action.value)
-    return `${device} → ${name}: ${value}`
-  }
-  if (action.type === 'notify') {
-    const who = action.target === 'concierge' ? 'консьержу' : 'жителю'
-    return `Уведомление ${who}: ${action.message ?? ''}`.trim()
-  }
-  if (action.type === 'dispatch') return `Заявка подрядчику${action.detail ? `: ${action.detail}` : ''}`
-  return action.detail ?? action.type
-}
 
 type RunReportProps = {
   report: SimulateReport
@@ -57,9 +33,9 @@ export function RunReport({ report, devices }: RunReportProps) {
           {steps.map((step, index) => (
             <li key={`${step.type}-${index}`} className="flex gap-2.5">
               <Icon
-                name={STATUS_ICON[step.status] ?? 'alert'}
+                name={ACTION_STATUS_ICON[step.status] ?? 'alert'}
                 size={15}
-                className={`mt-0.5 shrink-0 ${STATUS_COLOR[step.status] ?? 'text-ink-mute'}`}
+                className={`mt-0.5 shrink-0 ${ACTION_STATUS_COLOR[step.status] ?? 'text-ink-mute'}`}
               />
               <span className="text-[13px] leading-snug text-ink-dim">
                 {describeAction(step, devices)}

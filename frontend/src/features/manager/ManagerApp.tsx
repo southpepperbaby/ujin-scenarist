@@ -1,6 +1,7 @@
 import { Aurora } from '../../shared/ui/Aurora'
 import { useStore } from '../../store'
 import { useDispatchData } from '../../shared/use-dispatch'
+import { AssistantPage } from './AssistantPage'
 import { DashboardPage } from './DashboardPage'
 import { DevicesPage } from './DevicesPage'
 import { IncidentsPage } from './IncidentsPage'
@@ -11,6 +12,10 @@ import { TopBar } from './TopBar'
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
   '/uk': { title: 'Дашборд', subtitle: 'ЖК «Северный», корп. 1 · общедомовое оборудование и квартиры' },
+  '/uk/assistant': {
+    title: 'Ассистент',
+    subtitle: 'Вопрос о доме, разовая команда или правило уровня дома — одним окном',
+  },
   '/uk/incidents': { title: 'Инциденты', subtitle: 'Уровни политики: 0 — журнал, 3 — критично, заявка сразу' },
   '/uk/tickets': { title: 'Заявки', subtitle: 'Очередь подрядчиков, сроки по договору и источник заявки' },
   '/uk/devices': { title: 'Устройства', subtitle: 'Состояние датчиков дома и квартиры' },
@@ -30,7 +35,8 @@ export function ManagerApp({ path, demo }: ManagerAppProps) {
   const openIncidents = dispatch.tickets.filter((ticket) => ticket.status === 'draft').length
 
   let page
-  if (path === '/uk/incidents') page = <IncidentsPage dispatch={dispatch} />
+  if (path === '/uk/assistant') page = <AssistantPage />
+  else if (path === '/uk/incidents') page = <IncidentsPage dispatch={dispatch} />
   else if (path === '/uk/tickets') page = <TicketsPage dispatch={dispatch} />
   else if (path === '/uk/devices') page = <DevicesPage devices={devices} />
   else if (path === '/uk/sandbox') page = <SandboxPage devices={devices} events={events} />
