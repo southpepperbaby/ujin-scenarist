@@ -15,7 +15,7 @@ SECRETS_PATH = Path(os.environ.get("UJIN_SECRETS", ROOT / "secrets" / "ujin.json
 
 
 def load_ujin_secrets() -> dict:
-    if not SECRETS_PATH.exists():
+    if not SECRETS_PATH.is_file():
         return {}
     with open(SECRETS_PATH, encoding="utf-8") as f:
         return json.load(f)
