@@ -8,8 +8,10 @@ from .counter import Counter
 from .ventilation import Ventilation
 from .fire import FireDetector
 from .light import Light
+from .valve import ValveDevice
 
 REGISTRY = {
+    "valve": ValveDevice,
     "leak": LeakSensor,
     "barrier": Barrier,
     "thermostat": Thermostat,

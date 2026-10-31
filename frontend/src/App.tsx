@@ -1,156 +1,65 @@
 import { useEffect, useState } from 'react'
-import { api, openEvents, type BusEvent, type Device, type SignalDecl } from './api'
+import { ConciergeScreen, ResidentScreen, Studio } from './screens'
+import { useStore } from './store'
+import { cx } from './ui'
 
-const GROUP_TITLES: Record<string, string> = {
-  property: 'Свойства',
-  capability: 'Возможности',
-  setting: 'Настройки',
-}
+const TABS = [
+  { key: 'studio', title: 'Студия сценариев', hint: 'интегратор' },
+  { key: 'resident', title: 'Житель', hint: 'телефон' },
+  { key: 'concierge', title: 'Консьерж и УК', hint: 'BMS' },
+] as const
+
+type Tab = (typeof TABS)[number]['key']
 
 export default function App() {
-  const [devices, setDevices] = useState<Device[]>([])
-  const [events, setEvents] = useState<BusEvent[]>([])
+  const load = useStore((s) => s.load)
+  const connect = useStore((s) => s.connect)
+  const error = useStore((s) => s.error)
+  const [tab, setTab] = useState<Tab>(() => (location.hash.slice(1) as Tab) || 'studio')
 
   useEffect(() => {
-    api.devices().then(setDevices)
-    api.events(50).then(setEvents)
-    return openEvents((e) => {
-      setEvents((prev) => [...prev.slice(-199), e])
-      if (e.kind === 'signal' && e.device_id) {
-        setDevices((prev) =>
-          prev.map((d) =>
-            d.id === e.device_id
-              ? { ...d, signals: d.signals.map((s) => (s.name === e.signal ? { ...s, value: e.value! } : s)) }
-              : d,
-          ),
-        )
-      }
-      if (e.kind === 'device') api.devices().then(setDevices)
-    })
+    load()
+    return connect()
+  }, [load, connect])
+
+  useEffect(() => {
+    location.hash = tab
+  }, [tab])
+
+  useEffect(() => {
+    const onHash = () => setTab((location.hash.slice(1) as Tab) || 'studio')
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
   return (
-    <div className="min-h-screen grid grid-cols-[1fr_380px]">
-      <main className="p-6 space-y-6">
-        <header className="flex items-baseline justify-between">
-          <h1 className="text-2xl font-semibold">Сценарист</h1>
-          <span className="text-sm text-gray-500">песочница устройств</span>
-        </header>
-        <section className="grid grid-cols-2 xl:grid-cols-3 gap-4">
-          {devices.map((d) => (
-            <DeviceCard key={d.id} device={d} />
-          ))}
-        </section>
-      </main>
-      <aside className="border-l border-gray-200 bg-white p-4 overflow-y-auto h-screen sticky top-0">
-        <h2 className="font-medium mb-3">Лента событий</h2>
-        <ul className="space-y-1 text-sm font-mono">
-          {[...events].reverse().map((e) => (
-            <li key={e.seq} className={e.kind === 'log' ? 'text-gray-400' : 'text-gray-800'}>
-              <span className="text-gray-400">{new Date(e.ts * 1000).toLocaleTimeString()} </span>
-              {e.kind === 'signal' && (
-                <>
-                  <b>{e.device_id}</b> {e.title ?? e.signal}: {String(e.prev)} → {String(e.value)}
-                </>
-              )}
-              {e.kind === 'log' && <>{e.message}</>}
-              {e.kind === 'device' && <>{e.device_id} {e.action}</>}
-            </li>
-          ))}
-        </ul>
-      </aside>
-    </div>
-  )
-}
-
-function DeviceCard({ device }: { device: Device }) {
-  const groups = ['property', 'capability', 'setting'] as const
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 space-y-3">
-      <div className="flex justify-between items-start">
-        <div>
-          <div className="font-medium">{device.title}</div>
-          <div className="text-xs text-gray-500">
-            {device.room} · {device.scope === 'building' ? 'дом' : 'квартира'} · {device.id}
+    <div className="min-h-screen bg-slate-100/70 text-slate-900">
+      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur">
+        <div className="flex items-center gap-6 px-5 py-3">
+          <div className="flex items-center gap-2">
+            <span className="grid h-8 w-8 place-items-center rounded-lg bg-indigo-600 text-sm font-bold text-white">С</span>
+            <span className="font-semibold">Сценарист</span>
+            <span className="text-xs text-slate-400">на Ujin OS</span>
           </div>
-        </div>
-        {device.ujin && (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-            Ujin
-          </span>
-        )}
-      </div>
-      {device.inputs.length > 0 && (
-        <div className="flex gap-2 flex-wrap">
-          {device.inputs.map((inp) => (
-            <span key={inp} className="flex gap-1">
-              <button className="btn" onClick={() => api.inject(device.id, inp, 1)}>
-                {inp} ▲
-              </button>
-              <button className="btn" onClick={() => api.inject(device.id, inp, 0)}>
-                {inp} ▼
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      {groups.map((g) => {
-        const rows = device.signals.filter((s) => s.group === g)
-        if (!rows.length) return null
-        return (
-          <div key={g}>
-            <div className="text-[11px] uppercase tracking-wide text-gray-400 mb-1">{GROUP_TITLES[g]}</div>
-            <table className="w-full text-sm">
-              <tbody>
-                {rows.map((s) => (
-                  <SignalRow key={s.name} device={device} s={s} />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function SignalRow({ device, s }: { device: Device; s: SignalDecl }) {
-  const writable = s.management !== 'r'
-  const shown = s.layout?.[String(s.value)] ?? `${s.value}${s.measure ? ' ' + s.measure : ''}`
-  return (
-    <tr className="border-t border-gray-100">
-      <td className="py-1 text-gray-600">
-        {s.title} <span className="text-gray-300 text-xs">{s.name}</span>
-      </td>
-      <td className="py-1 text-right">
-        {writable && s.layout && Object.keys(s.layout).length <= 4 ? (
-          <span className="flex gap-1 justify-end">
-            {Object.entries(s.layout).map(([v, label]) => (
+          <nav className="flex gap-1 rounded-xl bg-slate-100 p-1">
+            {TABS.map((t) => (
               <button
-                key={v}
-                className={`btn ${String(s.value) === v ? 'btn-active' : ''}`}
-                onClick={() => api.command(device.id, s.name, Number(v))}
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={cx('rounded-lg px-3 py-1.5 text-sm transition', tab === t.key ? 'bg-white font-medium shadow-sm' : 'text-slate-500 hover:text-slate-800')}
               >
-                {label}
+                {t.title} <span className="text-xs text-slate-400">· {t.hint}</span>
               </button>
             ))}
-          </span>
-        ) : writable && s.control === 'push_time' ? (
-          <button className="btn" onClick={() => api.command(device.id, s.name, 1)}>
-            {s.title}
-          </button>
-        ) : writable ? (
-          <input
-            className="w-20 text-right border border-gray-200 rounded px-1"
-            defaultValue={String(s.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') api.command(device.id, s.name, Number((e.target as HTMLInputElement).value))
-            }}
-          />
-        ) : (
-          <span className="font-mono">{shown}</span>
-        )}
-      </td>
-    </tr>
+          </nav>
+        </div>
+      </header>
+      {tab === 'studio' && <Studio />}
+      {tab === 'resident' && <ResidentScreen />}
+      {tab === 'concierge' && <ConciergeScreen />}
+      {error && (
+        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-rose-600 px-4 py-2 text-sm text-white shadow-lg">{error}</div>
+      )}
+    </div>
   )
 }
