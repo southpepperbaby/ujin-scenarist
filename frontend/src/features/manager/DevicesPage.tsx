@@ -79,7 +79,7 @@ export function DevicesPage({ devices }: { devices: Device[] }) {
         onEdit={(device) => setModal({ kind: 'device', device })}
       />
       <Group
-        title="Квартира 42"
+        title="Квартира 2806"
         hint={`${apartment.length} устройств · правила жителя, УК видит только состояние`}
         devices={apartment}
         onEdit={(device) => setModal({ kind: 'device', device })}
