@@ -121,6 +121,7 @@ async def test_higher_priority_rule_wins_conflict():
     await engine.idle()
     assert reg.get("light").state()["lamp"] == 1
     assert engine.runs[-1]["actions"][0]["status"] == "conflict"
+    assert engine.runs[-1]["status"] == "error"
 
 
 def test_export_to_ujin_autoscript():
