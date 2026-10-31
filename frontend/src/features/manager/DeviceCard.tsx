@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react'
+
 import { api, type Device } from '../../api'
 import { Icon } from '../../shared/ui/Icon'
 import { deviceIcon } from '../resident/device-icons'
@@ -6,6 +8,8 @@ import { DeviceSignalTable } from './DeviceSignalTable'
 type DeviceCardProps = {
   device: Device
   controls: boolean
+  /** Кнопки управления карточкой, например «Изменить». */
+  actions?: ReactNode
 }
 
 function hasAlarm(device: Device): boolean {
@@ -15,7 +19,7 @@ function hasAlarm(device: Device): boolean {
   )
 }
 
-export function DeviceCard({ device, controls }: DeviceCardProps) {
+export function DeviceCard({ device, controls, actions }: DeviceCardProps) {
   const alarm = hasAlarm(device)
 
   return (
@@ -48,6 +52,7 @@ export function DeviceCard({ device, controls }: DeviceCardProps) {
             Ujin
           </span>
         )}
+        {actions}
       </header>
 
       {controls && device.inputs.length > 0 && (

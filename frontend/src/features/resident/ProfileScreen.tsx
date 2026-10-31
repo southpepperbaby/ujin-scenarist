@@ -19,7 +19,7 @@ export function ProfileScreen() {
           <Icon name="user" size={26} />
         </span>
         <div>
-          <h1 className="text-xl font-semibold">Житель · кв. 42</h1>
+          <h1 className="text-xl font-semibold">Житель · кв. 2806</h1>
           <p className="text-[13px] text-ink-mute">Полный доступ к правилам квартиры</p>
         </div>
       </header>

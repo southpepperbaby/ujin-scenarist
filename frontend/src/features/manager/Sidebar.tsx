@@ -16,8 +16,8 @@ function items(drafts: number): NavItem[] {
     { to: '/uk/incidents', label: 'Инциденты', icon: 'alert' },
     { to: '/uk/tickets', label: 'Заявки', icon: 'wrench', badge: drafts },
     { to: '/uk/devices', label: 'Устройства', icon: 'building' },
+    { to: '/uk/rules', label: 'Правила', icon: 'sliders' },
     { to: '/uk/sandbox', label: 'Песочница', icon: 'play' },
-    { to: '/studio', label: 'Студия правил', icon: 'sliders' },
   ]
 }
 

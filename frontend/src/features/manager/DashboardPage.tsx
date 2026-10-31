@@ -1,5 +1,5 @@
 import type { Device } from '../../api'
-import { isAlarm } from '../../devices'
+import { isAlarm } from '../../shared/device-values'
 import type { DispatchData } from '../../shared/use-dispatch'
 import { Icon } from '../../shared/ui/Icon'
 import { IncidentRow } from './IncidentRow'

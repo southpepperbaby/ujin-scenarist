@@ -1,5 +1,5 @@
 import { api, type Device } from '../../api'
-import { isAlarm, keySignal } from '../../devices'
+import { isAlarm, keySignal } from '../../shared/device-values'
 import { guard } from '../../store'
 import { Icon } from '../../shared/ui/Icon'
 import { Toggle } from '../../shared/ui/Toggle'
