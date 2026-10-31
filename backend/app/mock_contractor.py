@@ -18,6 +18,14 @@ from .tickets import sign, verify
 
 router = APIRouter(prefix="/mock/contractors", tags=["эмулятор подрядчика"])
 INBOX: dict[str, list[dict]] = {}
+STORAGE = None                                   # main.py подставляет общее хранилище
+
+
+def load(storage) -> None:
+    global STORAGE
+    STORAGE = storage
+    INBOX.clear()
+    INBOX.update(storage.get("mock", "inbox", {}))
 
 
 @router.post("/{contractor_id}/webhook")
@@ -28,6 +36,8 @@ async def receive(contractor_id: str, request: Request):
     data = json.loads(body)
     external_id = f"{contractor_id.upper()[:4]}-{uuid.uuid4().hex[:5]}"
     INBOX.setdefault(contractor_id, []).append({**data, "external_id": external_id, "received": time.time()})
+    if STORAGE:
+        STORAGE.put("mock", "inbox", INBOX)
     return {"accepted": True, "external_id": external_id, "eta_minutes": data.get("sla_minutes")}
 
 
