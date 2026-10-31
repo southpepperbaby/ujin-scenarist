@@ -2,34 +2,12 @@ import { navigate } from '../../app/routing'
 import { levelOfNotice, levelStyle } from '../../shared/severity'
 import { formatClock } from '../../shared/format'
 import { Icon } from '../../shared/ui/Icon'
-import { showValue } from '../../devices'
 import { useStore } from '../../store'
-import type { Device, Notification } from '../../api'
+import type { Notification } from '../../api'
 import { DeviceTile } from './DeviceTile'
 
-function readSignal(devices: Device[], family: string, name: string): string {
-  const signal = devices.find((device) => device.family === family)?.signals.find((s) => s.name === name)
-  return signal ? showValue(signal) : '—'
-}
-
-function Summary({ devices }: { devices: Device[] }) {
-  const tiles = [
-    { label: 'В спальне', value: readSignal(devices, 'thermostat', 'temperature'), icon: 'thermometer' as const },
-    { label: 'Влажность', value: readSignal(devices, 'thermostat', 'humidity'), icon: 'droplet' as const },
-    { label: 'Устройств', value: String(devices.length), icon: 'grid' as const },
-  ]
-  return (
-    <div className="grid grid-cols-3 gap-2.5">
-      {tiles.map((tile) => (
-        <div key={tile.label} className="rounded-2xl border border-line bg-surface p-3">
-          <Icon name={tile.icon} size={18} className="text-ink-mute" />
-          <p className="mt-2 truncate text-base font-semibold">{tile.value}</p>
-          <p className="truncate text-[11px] text-ink-mute">{tile.label}</p>
-        </div>
-      ))}
-    </div>
-  )
-}
+/** Общедомовые устройства, которыми житель управляет сам, — показываем рядом с квартирными. */
+const RESIDENT_SHARED_FAMILIES = ['barrier']
 
 function AlertBanner({ notice }: { notice: Notification }) {
   const style = levelStyle(levelOfNotice(notice.level))
@@ -54,8 +32,9 @@ export function HomeScreen({ demo }: { demo: boolean }) {
   const notifications = useStore((state) => state.notifications)
   const rules = useStore((state) => state.rules)
 
-  const mine = devices.filter((device) => device.scope === 'apartment')
-  const shared = devices.filter((device) => device.scope === 'building')
+  const mine = devices.filter(
+    (device) => device.scope === 'apartment' || RESIDENT_SHARED_FAMILIES.includes(device.family),
+  )
   const forResident = notifications.filter((notice) => notice.target === 'resident')
   const latest = forResident.at(-1)
   const active = rules.filter((rule) => rule.owner === 'resident' && rule.enabled)
@@ -64,8 +43,8 @@ export function HomeScreen({ demo }: { demo: boolean }) {
     <div className="space-y-6 px-5 pt-4 pb-8">
       <header className="flex items-start justify-between">
         <div>
-          <p className="text-[13px] text-ink-mute">ЖК «Северный», корп. 1</p>
-          <h1 className="text-2xl">Квартира 2806</h1>
+          <p className="text-[13px] text-ink-mute">ЖК «Северный», корп. 1, кв. 2806</p>
+          <h1 className="text-2xl">Мой дом</h1>
         </div>
         <span className="flex size-10 items-center justify-center rounded-full bg-raised text-ink-dim">
           <Icon name="user" size={20} />
@@ -78,7 +57,6 @@ export function HomeScreen({ demo }: { demo: boolean }) {
         </p>
       )}
 
-      <Summary devices={mine} />
       {latest && <AlertBanner notice={latest} />}
 
       <section className="space-y-3">
@@ -122,17 +100,6 @@ export function HomeScreen({ demo }: { demo: boolean }) {
                 </span>
                 <Icon name="chevronRight" size={18} className="shrink-0 text-ink-mute" />
               </button>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {shared.length > 0 && (
-        <section className="space-y-3">
-          <h2 className="text-base font-semibold">Общедомовое</h2>
-          <div className="grid grid-cols-2 gap-2.5">
-            {shared.map((device, index) => (
-              <DeviceTile key={device.id} device={device} index={index} />
             ))}
           </div>
         </section>

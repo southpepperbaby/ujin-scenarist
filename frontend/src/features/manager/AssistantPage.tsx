@@ -235,7 +235,7 @@ export function AssistantPage() {
         )}
       </div>
 
-      <div className="sticky bottom-0 flex items-end gap-2 bg-base/80 pt-2 pb-1 backdrop-blur">
+      <div className="sticky bottom-0 flex items-end gap-2 bg-canvas/80 pt-2 pb-1 backdrop-blur">
         <textarea
           value={text}
           onChange={(event) => setText(event.target.value)}

@@ -7,14 +7,7 @@ import { Button } from '../../shared/ui/Button'
 import { Glass } from '../../shared/ui/Glass'
 import { Icon } from '../../shared/ui/Icon'
 import { TypingDots } from '../../shared/ui/TypingDots'
-import { RuleBlock } from '../../shared/rule/RuleBlock'
-import { ruleLines } from '../../shared/rule/rule-lines'
-
-const EXAMPLES = [
-  'Если ночью на кухне протечка — перекрой воду и включи свет в коридоре',
-  'Когда открываю окно в спальне, выключай отопление',
-  'Если пошёл дым — открой шлагбаум и сообщи УК',
-]
+import { RuleFlow } from '../../shared/rule/RuleFlow'
 
 function Bubble({ children, mine = false }: { children: React.ReactNode; mine?: boolean }) {
   return (
@@ -95,28 +88,8 @@ export function ScenarioChat() {
     }
   }
 
-  const lines = result?.rule ? ruleLines(result.rule, devices) : null
-
   return (
-    <section className="space-y-3">
-      <Bubble>Опишите правило словами — соберу его по схеме, проверю линтером и покажу, что понял.</Bubble>
-
-      {!sent && (
-        <div className="space-y-2">
-          {EXAMPLES.map((example, index) => (
-            <button
-              key={example}
-              type="button"
-              onClick={() => setText(example)}
-              style={{ '--i': index } as React.CSSProperties}
-              className="rise press w-full rounded-xl border border-line bg-raised/50 px-3.5 py-2.5 text-left text-[13px] text-ink-dim transition hover:border-accent/40 hover:text-ink"
-            >
-              {example}
-            </button>
-          ))}
-        </div>
-      )}
-
+    <div className="space-y-3">
       {sent && <Bubble mine>{sent}</Bubble>}
 
       {busy && (
@@ -127,12 +100,12 @@ export function ScenarioChat() {
 
       {result?.answer && <Bubble>{result.answer}</Bubble>}
 
-      {lines && result?.rule && (
+      {result?.rule && (
         <>
           <Bubble>{`Вот что я понял: «${result.rule.title}»`}</Bubble>
-          <RuleBlock kind="when" lines={lines.when} />
-          <RuleBlock kind="if" lines={lines.conditions} />
-          <RuleBlock kind="then" lines={lines.actions} />
+          <Glass className="p-4">
+            <RuleFlow rule={result.rule} devices={devices} />
+          </Glass>
           <LinterReport result={result} />
           <div className="flex gap-2.5">
             <Button variant="primary" icon="check" className="flex-1" onClick={() => void onSave()}>
@@ -168,7 +141,7 @@ export function ScenarioChat() {
             }
           }}
           rows={2}
-          placeholder="Например: если ночью протечка — перекрой воду"
+          placeholder="Опишите правило словами — соберу и проверю"
           className="scroll-slim glass flex-1 resize-none rounded-2xl px-3.5 py-2.5 text-[14px] text-ink outline-none placeholder:text-ink-mute focus:border-accent/50"
         />
         <button
@@ -180,6 +153,6 @@ export function ScenarioChat() {
           <Icon name="arrowRight" size={20} />
         </button>
       </div>
-    </section>
+    </div>
   )
 }
