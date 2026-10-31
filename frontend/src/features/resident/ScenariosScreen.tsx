@@ -7,14 +7,7 @@ export function ScenariosScreen() {
 
   return (
     <div className="space-y-6 px-5 pt-4 pb-8">
-      <header>
-        <h1 className="text-2xl">Сценарии</h1>
-        <p className="mt-1 text-[13px] text-ink-mute">
-          Скажите, что должно происходить. Правило соберётся само и прогонится на эмуляторах.
-        </p>
-      </header>
-
-      <ScenarioChat />
+      <h1 className="text-2xl">Сценарии</h1>
 
       {rules.length > 0 && (
         <section className="space-y-2.5">
@@ -24,6 +17,11 @@ export function ScenariosScreen() {
           ))}
         </section>
       )}
+
+      <section className="space-y-2.5">
+        <h2 className="text-[11px] font-semibold tracking-widest text-ink-mute">НОВОЕ ПРАВИЛО</h2>
+        <ScenarioChat />
+      </section>
     </div>
   )
 }

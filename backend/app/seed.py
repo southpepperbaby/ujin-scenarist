@@ -11,6 +11,7 @@ SEED_DEVICES = [
     ("hall-light", "light", "Свет в коридоре", "Коридор", "apartment", {}),
     ("bedroom-thermostat", "thermostat", "Термостат", "Спальня", "apartment", {}),
     ("kitchen-smoke", "fire", "Пожарный датчик", "Кухня", "apartment", {}),
+    ("bedroom-vent", "ventilation", "Вентиляция", "Спальня", "apartment", {}),
     ("yard-barrier", "barrier", "Шлагбаум", "Двор", "building", {}),
     ("lift-1", "elevator", "Лифт", "Подъезд 1", "building", {"floors": 9}),
 ]

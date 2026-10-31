@@ -8,7 +8,7 @@ type ScreenHeaderProps = {
 
 export function ScreenHeader({ title, back }: ScreenHeaderProps) {
   return (
-    <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-base/90 px-4 py-3 backdrop-blur">
+    <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-line bg-canvas/90 px-4 py-3 backdrop-blur">
       <button
         type="button"
         onClick={() => navigate(back)}
