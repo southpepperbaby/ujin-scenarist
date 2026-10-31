@@ -40,7 +40,9 @@ export type Family = {
 export type Op = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'changed'
 
 export type Trigger = { type: 'signal'; device_id: string; signal: string; op: Op; value: unknown }
-export type Condition = { device_id: string; signal: string; op: Op; value: unknown }
+export type SignalCondition = { type?: 'signal'; device_id: string; signal: string; op: Op; value: unknown }
+export type TimeCondition = { type: 'time'; start: string; end: string }
+export type Condition = SignalCondition | TimeCondition
 export type Action =
   | { type: 'set_signal'; device_id: string; signal: string; value: unknown; delay_s?: number }
   | { type: 'notify'; target: 'resident' | 'concierge'; message: string; level: 'info' | 'warning' | 'critical'; delay_s?: number }
@@ -69,6 +71,8 @@ export type Notification = {
   message: string
   rule_id: string | null
   rule_title: string | null
+  ticket_id?: string
+  incident_id?: string
 }
 
 export type BusEvent = {
@@ -209,7 +213,7 @@ export type LintIssue = { level: 'error' | 'warning' | 'info'; code: string; mes
 export type Lint = { ok: boolean; errors?: number; warnings?: number; issues: LintIssue[] }
 
 export type Compiled = {
-  intent: { intent: 'rule' | 'command' | 'question'; confidence: number }
+  intent: { intent: 'rule' | 'command' | 'question'; confidence?: number }
   text?: string
   rule: Rule | null
   explanation?: string
@@ -218,7 +222,7 @@ export type Compiled = {
   error?: string
 }
 
-export type Confirmed = { kind: 'rule' | 'command'; explanation: string; rule?: Rule; lint?: Lint }
+export type Confirmed = { kind: 'rule' | 'command'; explanation: string; rule?: Rule; lint?: Lint; run?: RunRecord }
 
 export const api = {
   families: () => json<Family[]>('/api/families'),
@@ -249,9 +253,9 @@ export const api = {
   events: (limit = 100) => json<BusEvent[]>(`/api/events?limit=${limit}`),
   sim: (patch: { running?: boolean; speed?: number }) => json('/api/sim', { method: 'POST', ...body(patch) }),
 
-  incidents: (limit = 50) => json<Incident[]>(`/api/incidents?limit=${limit}`),
-  tickets: () => json<Ticket[]>('/api/tickets'),
-  moveTicket: (id: string, status: TicketStatus, actor = 'консьерж', note = '') =>
+  incidents: (role: Role, limit = 50) => json<Incident[]>(`/api/incidents?limit=${limit}&role=${role}`),
+  tickets: (role: Role) => json<Ticket[]>(`/api/tickets?role=${role}`),
+  moveTicket: (id: string, status: TicketStatus, actor: string, note = '') =>
     json<Ticket>(`/api/tickets/${id}/transition`, { method: 'POST', ...body({ status, actor, note }) }),
   contractors: () => json<Contractor[]>('/api/contractors'),
   dictionaries: () => json<Dictionaries>('/api/dictionaries'),
