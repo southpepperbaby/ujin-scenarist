@@ -208,7 +208,7 @@ async def test_nl_compile_maps_aliases_back_and_lints(monkeypatch):
                 "trigger": {"device": "dev_1", "signal": "leak", "op": "eq", "value": 1},
                 "actions": [{"type": "set_signal", "device": "dev_2", "signal": "valve", "value": 0},
                             {"type": "notify", "target": "resident", "level": "critical", "message": "Протечка"}],
-                "explanation": "При протечке закрывает воду."}
+                "explanation": "Ночью включает свет в спальне."}   # модель врёт о себе
 
     monkeypatch.setattr(ai, "jev", intent)
     monkeypatch.setattr(ai, "llm_json", llm)
@@ -217,6 +217,10 @@ async def test_nl_compile_maps_aliases_back_and_lints(monkeypatch):
     r = out["rule"]
     assert r["trigger"]["device_id"] == "leak" and r["actions"][0]["device_id"] == "valve"
     assert out["lint"]["ok"] and r["enabled"] is False
+    # Карточка «вот что я понял» строится из JSON: ложное объяснение модели на неё не попадает.
+    assert "Ночью" not in out["explanation"] and "спальн" not in out["explanation"]
+    assert out["explanation"].startswith("Когда протечка у «Датчик протечки» становится")
+    assert "клапан → «закрыт»" in out["explanation"] and "«Протечка»" in out["explanation"]
 
 
 @pytest.mark.asyncio
@@ -242,8 +246,40 @@ async def test_nl_retries_once_on_schema_error(monkeypatch):
 def test_explain_is_plain_language():
     _, reg = house()
     text = nl.explain(rule(), reg)
-    assert text.startswith("Когда у «Датчик протечки» протечка становится протечка")
-    assert "клапан → закрыт" in text
+    assert text.startswith("Когда протечка у «Датчик протечки» становится «протечка»")
+    assert "клапан → «закрыт»" in text
+
+
+def test_explain_covers_every_executed_field():
+    from app.rules import Dispatch, TimeCondition
+    _, reg = house()
+    r = rule(actions=[SetSignal(device_id="light", signal="lamp", value=1, delay_s=5),
+                      Notify(target="concierge", level="critical", message="Вода на кухне"),
+                      Dispatch(category="plumbing", note="срочно")])
+    r.conditions = [TimeCondition(start="22:00", end="07:00")]
+    text = nl.explain(r, reg)
+    for part in ("время с 22:00 до 07:00", "через 5 с", "сообщить консьержу (срочно): «Вода на кухне»",
+                 "Сантехника", "с пометкой «срочно»"):
+        assert part in text, part
+
+
+@pytest.mark.asyncio
+async def test_previous_prompt_is_merged_on_refine(monkeypatch):
+    seen = []
+
+    async def intent(state, questions):
+        return {"intent": {"choice": "rule", "confidence": 0.9}}
+
+    async def llm(system, user, **kw):
+        seen.append(user)
+        return {"title": "x", "trigger": {"device": "dev_1", "signal": "leak", "value": 1},
+                "actions": [{"type": "notify", "target": "resident", "message": "m"}]}
+
+    monkeypatch.setattr(ai, "jev", intent)
+    monkeypatch.setattr(ai, "llm_json", llm)
+    out = await nl.compile_text("и только ночью", house()[1], [], previous="при протечке напиши мне")
+    assert "при протечке напиши мне\nУточнение: и только ночью" in seen[0]
+    assert out["text"].endswith("и только ночью")
 
 
 def test_parse_json_strips_think_and_fences():
