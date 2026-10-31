@@ -21,33 +21,40 @@ from .linter import lint, summary
 from .rules import Rule, RuleStore, to_ujin_autoscript
 from .seed import SEED_DEVICES, seed_rules
 from .simulate import simulate
+from . import mock_contractor
 from .mock_contractor import router as mock_contractor_router
+from .persistence import Persistence
+from .storage import Storage
 from .tickets import CATEGORY_TITLES, STATUS_TITLES, Contractor, TicketService, verify, visible_to
 from .ujin_bridge import UjinBridge
 
 bus = EventBus()
 registry = DeviceRegistry(bus, ujin_devices=config.UJIN.get("devices"))
-store = RuleStore(config.DATA_DIR / "rules.json")
-tickets = TicketService(bus)
+storage = Storage(config.DATA_DIR / "scenarist.db")
+store = RuleStore(storage, legacy_path=config.DATA_DIR / "rules.json")
+tickets = TicketService(bus, storage=storage)
 engine = Engine(registry, bus, store)
 dispatcher = Dispatcher(bus, registry, tickets, notify=engine.notify)
+persistence = Persistence(storage, registry, engine, dispatcher)
+mock_contractor.load(storage)
 engine.dispatch_hook = dispatcher.from_rule
 ujin = UjinBridge(bus, registry, config.UJIN)
 
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
-    if not registry.devices:
+    if not persistence.restore() and not registry.devices:
         for device_id, family, title, room, scope, kwargs in SEED_DEVICES:
             registry.create(family, title=title, room=room, scope=scope, device_id=device_id, **kwargs)
     if not store.rules:
         for rule in seed_rules():
             store.put(rule)
     tasks = [asyncio.create_task(c) for c in (
-        registry.run(), engine.run(), dispatcher.run(), ujin.run())]
+        registry.run(), engine.run(), dispatcher.run(), ujin.run(), persistence.run())]
     yield
     for task in tasks:
         task.cancel()
+    persistence.snapshot()
 
 
 app = FastAPI(title="Сценарист API", lifespan=lifespan)
@@ -370,6 +377,7 @@ def get_policy():
 @app.put("/api/policy")
 def put_policy(policy: Policy):
     dispatcher.policy = policy
+    persistence.save_policy()
     return policy
 
 

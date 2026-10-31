@@ -42,6 +42,7 @@ class Engine:
         self.clock = lambda: datetime.now().strftime("%H:%M")   # прогон подменяет «который час»
         self.runs: deque[dict] = deque(maxlen=300)
         self.notifications: deque[dict] = deque(maxlen=300)
+        self.journal_version = 0               # растёт при каждой записи: снимок пишется только если есть новое
         self._last_fire: dict[str, float] = {}
         self._fires: dict[str, deque[float]] = {}
         self._writes: dict[tuple[str, str], tuple[str, int, float]] = {}
@@ -176,6 +177,7 @@ class Engine:
                 "message": message, "rule_id": rule.id if rule else None,
                 "rule_title": rule.title if rule else None, **(extra or {})}
         self.notifications.append(note)
+        self.journal_version += 1
         self.bus.emit("notify", None, **note)
         return {"type": "notify", "status": "ok", "target": target, "message": message}
 
@@ -200,6 +202,7 @@ class Engine:
                "ts": time.time(), "status": status, "reason": reason,
                "trigger": event.to_dict() if event else None, "conditions": [], "actions": []}
         self.runs.append(run)
+        self.journal_version += 1
         self.bus.emit("rule", rule.trigger.device_id, rule_id=rule.id, phase=status,
                       run_id=run["id"], message=_run_message(run))
         return run
@@ -208,6 +211,7 @@ class Engine:
         run["status"] = status
         run["reason"] = reason
         run["duration_ms"] = int((time.time() - run["ts"]) * 1000)
+        self.journal_version += 1
         self.bus.emit("rule", None, rule_id=run["rule_id"], phase=status, run_id=run["id"],
                       message=_run_message(run), actions=run["actions"])
         return run
