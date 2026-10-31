@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api, type BusEvent, type Device, type Notification } from './api'
 import { DeviceDetail, DeviceList, isAlarm, keySignal } from './devices'
+import { RuleFromText } from './nl'
 import { describeRule, RulesSection } from './rules'
 import { guard, useStore } from './store'
 import { Badge, Button, Card, cx, Dot, FAMILY_ICON, SectionTitle, timeOf } from './ui'
@@ -187,6 +188,7 @@ export function ResidentScreen() {
           )}
           {tab === 'rules' && (
             <div className="space-y-2">
+              <RuleFromText role="resident" compact />
               {rules.map((r) => {
                 const { when, acts } = describeRule(r, all)
                 return (
@@ -322,6 +324,7 @@ export function ConciergeScreen() {
             ))}
           </div>
         </Card>
+        <RuleFromText role="uk" />
         <RulesSection filter={(r) => r.owner === 'uk' || r.scope === 'building'} owner="uk" />
       </div>
       <div className="space-y-5">

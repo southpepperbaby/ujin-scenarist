@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { api, type CompiledRule, type RunRecord, type SimulateReport } from '../../api'
+import { api, type Compiled, type RunRecord, type SimulateReport } from '../../api'
 import { useStore } from '../../store'
 import {
   ACTION_STATUS_COLOR,
@@ -52,13 +52,13 @@ function Steps({ actions }: { actions: RunRecord['actions'] }) {
   )
 }
 
-function LintSummary({ result }: { result: CompiledRule }) {
+function LintSummary({ result }: { result: Compiled }) {
   const lint = result.lint
   if (!lint) return null
   return (
     <p className={`mt-3 text-[12px] ${lint.ok ? 'text-ok' : 'text-sev-crit'}`}>
-      Линтер: {lint.ok ? 'конфликтов и циклов нет' : `ошибок ${lint.errors}`}
-      {lint.warnings > 0 && `, предупреждений ${lint.warnings}`}
+      Линтер: {lint.ok ? 'конфликтов и циклов нет' : `ошибок ${lint.errors ?? 0}`}
+      {(lint.warnings ?? 0) > 0 && `, предупреждений ${lint.warnings ?? 0}`}
     </p>
   )
 }
@@ -72,7 +72,7 @@ export function AssistantPage() {
   const reload = useStore((state) => state.reloadRules)
   const [text, setText] = useState('')
   const [sent, setSent] = useState<string | null>(null)
-  const [result, setResult] = useState<CompiledRule | null>(null)
+  const [result, setResult] = useState<Compiled | null>(null)
   const [run, setRun] = useState<RunRecord | null>(null)
   const [report, setReport] = useState<SimulateReport | null>(null)
   const [saved, setSaved] = useState<string | null>(null)

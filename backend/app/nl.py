@@ -40,8 +40,7 @@ SYSTEM = """Ты компилятор сценариев умного дома. 
     {"type": "set_signal", "device": "dev_N", "signal": "имя", "value": 0, "delay_s": 0},
     {"type": "notify", "target": "resident" | "concierge", "level": "info" | "warning" | "critical", "message": "текст"},
     {"type": "dispatch", "category": null, "note": "что передать подрядчику"}
-  ],
-  "explanation": "одно предложение простым языком, что делает правило"
+  ]
 }
 Для разовой команды верни тот же формат, но trigger: null, только actions.
 Время суток задавай условием type=time (ночь 22:00-07:00, утро 07:00-10:00, день 10:00-18:00, вечер 18:00-22:00).
@@ -83,7 +82,11 @@ async def classify_intent(text: str) -> dict:
         return {"intent": intent, "confidence": 0.5, "source": "keywords"}
 
 
-async def compile_text(text: str, registry: DeviceRegistry, rules: list[Rule], role: str = "resident") -> dict:
+async def compile_text(text: str, registry: DeviceRegistry, rules: list[Rule], role: str = "resident",
+                       previous: str | None = None) -> dict:
+    """previous: прошлая просьба, если человек нажал «нет, дополнить» и дописал уточнение."""
+    if previous:
+        text = f"{previous}\nУточнение: {text}"
     intent = await classify_intent(text)
     if intent["intent"] == "question":
         return {"intent": intent, "answer": answer_question(text, registry), "rule": None}
@@ -107,8 +110,10 @@ async def compile_text(text: str, registry: DeviceRegistry, rules: list[Rule], r
             continue
         check = summary(lint(rule, rules, registry)) if rule.trigger.device_id != "__now__" else {"ok": True,
                                                                                                     "issues": []}
-        return {"intent": intent, "rule": rule.model_dump(mode="json"), "lint": check,
-                "explanation": raw.get("explanation") or explain(rule, registry), "attempts": attempt + 1}
+        # Пересказ строится только из собранного правила: человек подтверждает то, что будет исполнено,
+        # а не то, что модель думает о своём ответе. Объяснение от LLM не используется намеренно.
+        return {"intent": intent, "text": text, "rule": rule.model_dump(mode="json"), "lint": check,
+                "explanation": explain(rule, registry), "attempts": attempt + 1}
     return {"intent": intent, "rule": None, "error": f"модель не смогла собрать правило по схеме: {last_error}"}
 
 
@@ -141,45 +146,60 @@ def _to_rule(raw: dict, p: ai.Pseudonymizer, role: str, intent: str, text: str) 
     })
 
 
+LEVEL_WORDS = {"info": "", "warning": " (важно)", "critical": " (срочно)"}
+TARGET_WORDS = {"resident": "уведомить жителя", "concierge": "сообщить консьержу"}
+
+
 def explain(rule: Rule, registry: DeviceRegistry) -> str:
-    """Объяснение правила простым языком без LLM: детерминированно и бесплатно."""
+    """Пересказ правила простым языком без LLM: детерминированно, бесплатно и ровно то, что исполнит движок.
+
+    Каждое поле правила, влияющее на исполнение, попадает в текст: триггер, все условия, все действия
+    со значениями, задержки, текст уведомлений, категория заявки. Если чего-то нет в пересказе,
+    этого нет и в правиле.
+    """
     def dev(i):
         m = registry.devices.get(i)
-        return m.title if m else i
+        return m.title if m else f"неизвестное устройство {i}"
+
+    def sig(i, s):
+        m = registry.devices.get(i)
+        return m.device.signals.get(s) if m else None
 
     def sig_title(i, s):
-        m = registry.devices.get(i)
-        sig = m.device.signals.get(s) if m else None
-        return sig.title.lower() if sig else s
+        x = sig(i, s)
+        return x.title.lower() if x else s
 
     def val(i, s, v):
-        m = registry.devices.get(i)
-        sig = m.device.signals.get(s) if m else None
-        if sig and sig.layout:
-            return sig.layout.get(v, sig.layout.get(str(v), str(v)))
-        return f"{v}{' ' + sig.measure if sig and sig.measure else ''}"
+        x = sig(i, s)
+        if x and x.layout:
+            return f"«{x.layout.get(v, x.layout.get(str(v), str(v)))}»"
+        return f"{v}{' ' + x.measure if x and x.measure else ''}"
+
+    def compare(ref, verb="становится") -> str:
+        if ref.op == "changed":
+            return f"{sig_title(ref.device_id, ref.signal)} у «{dev(ref.device_id)}» меняется"
+        op = verb if ref.op == "eq" else OP_TITLES[ref.op]
+        return f"{sig_title(ref.device_id, ref.signal)} у «{dev(ref.device_id)}» {op} " \
+               f"{val(ref.device_id, ref.signal, ref.value)}"
 
     t = rule.trigger
-    if t.device_id == "__now__":
-        head = "Сейчас"
-    elif t.op == "changed":
-        head = f"Когда у «{dev(t.device_id)}» меняется {sig_title(t.device_id, t.signal)}"
-    else:
-        head = (f"Когда у «{dev(t.device_id)}» {sig_title(t.device_id, t.signal)} "
-                f"{'становится' if t.op == 'eq' else OP_TITLES[t.op]} {val(t.device_id, t.signal, t.value)}")
-    conds = [f"время с {c.start} до {c.end}" if c.type == "time" else
-             f"{sig_title(c.device_id, c.signal)} у «{dev(c.device_id)}» {OP_TITLES[c.op]} "
-             f"{val(c.device_id, c.signal, c.value)}" for c in rule.conditions]
+    head = "Сейчас один раз" if t.device_id == "__now__" else f"Когда {compare(t)}"
+    conds = [f"время с {c.start} до {c.end}" if c.type == "time" else compare(c, "равно") for c in rule.conditions]
     acts = []
     for a in rule.actions:
         if isinstance(a, SetSignal):
-            acts.append(f"«{dev(a.device_id)}»: {sig_title(a.device_id, a.signal)} → {val(a.device_id, a.signal, a.value)}")
+            act = f"«{dev(a.device_id)}»: {sig_title(a.device_id, a.signal)} → {val(a.device_id, a.signal, a.value)}"
         elif a.type == "notify":
-            acts.append("сообщить консьержу" if a.target == "concierge" else "уведомить жителя")
+            act = f"{TARGET_WORDS.get(a.target, a.target)}{LEVEL_WORDS.get(a.level, '')}: «{a.message}»"
         else:
-            acts.append("вызвать подрядчика через автодиспетчер")
-    text = head + (", и при этом " + ", ".join(conds) if conds else "")
-    return f"{text}: {', '.join(acts)}."
+            from .tickets import CATEGORY_TITLES
+            who = f"подрядчика «{CATEGORY_TITLES.get(a.category, a.category)}»" if a.category else "подходящего подрядчика"
+            act = f"вызвать {who} через автодиспетчер" + (f" с пометкой «{a.note}»" if a.note else "")
+        if a.delay_s:
+            act = f"через {a.delay_s:g} с {act}"
+        acts.append(act)
+    text = head + (" и при этом " + ", ".join(conds) if conds else "")
+    return f"{text}: {'; '.join(acts) or 'ничего не делать'}."
 
 
 def answer_question(text: str, registry: DeviceRegistry) -> str:

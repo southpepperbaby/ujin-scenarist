@@ -42,6 +42,7 @@ class Engine:
         self.clock = lambda: datetime.now().strftime("%H:%M")   # прогон подменяет «который час»
         self.runs: deque[dict] = deque(maxlen=300)
         self.notifications: deque[dict] = deque(maxlen=300)
+        self.journal_version = 0               # растёт при каждой записи: снимок пишется только если есть новое
         self._last_fire: dict[str, float] = {}
         self._fires: dict[str, deque[float]] = {}
         self._writes: dict[tuple[str, str], tuple[str, int, float]] = {}
@@ -96,9 +97,18 @@ class Engine:
         for action in rule.actions:
             if action.delay_s:
                 await asyncio.sleep(action.delay_s / self.time_scale)
+            failed = [a for a in run["actions"] if a["status"] in ("error", "conflict")]
+            if failed and isinstance(action, Notify):
+                # Уведомление не должно утверждать то, что не произошло: дописываем, что сорвалось.
+                lost = "; ".join(f"{self._title(a['device_id'])}: {a.get('detail', a['status'])}"
+                                 for a in failed if a.get("device_id"))
+                action = action.model_copy(update={
+                    "level": "critical",
+                    "message": f"{action.message} ВНИМАНИЕ: не выполнено автоматически ({lost}), нужна проверка."})
             result = await self._perform(rule, action, run)
             run["actions"].append(result)
-        failed = [a for a in run["actions"] if a["status"] == "error"]
+        # Конфликт приоритетов тоже провал: действие не выполнено, хоть и по уважительной причине.
+        failed = [a for a in run["actions"] if a["status"] in ("error", "conflict")]
         status = "partial" if failed and len(failed) < len(run["actions"]) else ("error" if failed else "ok")
         return self._finish(run, status)
 
@@ -156,6 +166,10 @@ class Engine:
                 return {**base, "status": "error", "detail": str(exc), "attempts": attempt}
         return {**base, "status": "error", "detail": last_error, "attempts": RETRIES}
 
+    def _title(self, device_id: str) -> str:
+        m = self.registry.devices.get(device_id)
+        return m.title if m else device_id
+
     # ---------- уведомления ----------
 
     def notify(self, target: str, message: str, level: str = "info", rule: Rule | None = None,
@@ -164,6 +178,7 @@ class Engine:
                 "message": message, "rule_id": rule.id if rule else None,
                 "rule_title": rule.title if rule else None, **(extra or {})}
         self.notifications.append(note)
+        self.journal_version += 1
         self.bus.emit("notify", None, **note)
         return {"type": "notify", "status": "ok", "target": target, "message": message}
 
@@ -188,6 +203,7 @@ class Engine:
                "ts": time.time(), "status": status, "reason": reason,
                "trigger": event.to_dict() if event else None, "conditions": [], "actions": []}
         self.runs.append(run)
+        self.journal_version += 1
         self.bus.emit("rule", rule.trigger.device_id, rule_id=rule.id, phase=status,
                       run_id=run["id"], message=_run_message(run))
         return run
@@ -196,6 +212,7 @@ class Engine:
         run["status"] = status
         run["reason"] = reason
         run["duration_ms"] = int((time.time() - run["ts"]) * 1000)
+        self.journal_version += 1
         self.bus.emit("rule", None, rule_id=run["rule_id"], phase=status, run_id=run["id"],
                       message=_run_message(run), actions=run["actions"])
         return run
