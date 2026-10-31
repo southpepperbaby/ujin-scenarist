@@ -25,12 +25,13 @@ UJIN = load_ujin_secrets()
 UJIN_BASE_URL = UJIN.get("api_base") or os.environ.get("UJIN_BASE", "https://api-uae-test.ujin.tech/api")
 UJIN_LIVE = os.environ.get("UJIN_LIVE", "0") == "1"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3.8-flash")
+LLM_MODEL = os.environ.get("LLM_MODEL", "google/gemini-3.1-flash-lite")
 # Запасные модели: OpenRouter переключается сам, если у основной лимит или сбой у провайдера.
 LLM_FALLBACKS = [m for m in os.environ.get(
-    "LLM_FALLBACKS", "deepseek/deepseek-v4.1-flash,google/gemini-3.1-flash-lite").split(",") if m]
+    "LLM_FALLBACKS", "qwen/qwen3.8-flash,deepseek/deepseek-v4.1-flash").split(",") if m]
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "scenarist-demo-secret")
+LLM_REASONING = os.environ.get("LLM_REASONING", "off")
 JEV_MODEL = os.environ.get("JEV_MODEL", "~typesafe/jev-latest")
