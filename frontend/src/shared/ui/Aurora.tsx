@@ -10,7 +10,7 @@ type AuroraProps = {
  * В тёмной теме пятна приглушены, при prefers-reduced-motion стоят на месте.
  */
 export function Aurora({ intensity = 'soft' }: AuroraProps) {
-  const opacity = intensity === 'bold' ? 'opacity-70 dark:opacity-35' : 'opacity-40 dark:opacity-20'
+  const opacity = intensity === 'bold' ? 'opacity-45 dark:opacity-35' : 'opacity-30 dark:opacity-20'
   return (
     <div className={`pointer-events-none absolute inset-0 overflow-hidden ${opacity}`} aria-hidden="true">
       <div className="animate-aurora absolute -top-24 -left-20 size-72 rounded-full bg-accent/35 blur-[80px] will-change-transform" />

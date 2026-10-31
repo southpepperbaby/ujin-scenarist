@@ -59,14 +59,14 @@
   --text-title--line-height: 1.5rem;
   --text-title--font-weight: 600;
 
-  /* Светлая тема: приглушённый тёплый беж, текст — тёмно-коричневый из палитры.
-     Вспомогательный текст (ink-mute) держит контраст не ниже 4.4:1 на всех подложках. */
-  --color-canvas: #e8e1d5;
-  --color-surface: #f3eee5;
-  --color-raised: #e4dbcd;
-  --color-field: #dcd2c2;
-  --color-line: #d3c7b4;
-  --color-line-strong: #bdae98;
+  /* Светлая тема: тёплый молочный фон и почти белые карточки, текст — тёмно-коричневый из палитры.
+     Любой цветной и вспомогательный текст держит контраст не ниже 5:1 на всех подложках. */
+  --color-canvas: #f8f3ea;
+  --color-surface: #fffcf6;
+  --color-raised: #f2ebdf;
+  --color-field: #ece4d6;
+  --color-line: #e6dccc;
+  --color-line-strong: #d0c2ac;
 
   --color-accent: #943a02;
   --color-accent-glow: #dd8607;
