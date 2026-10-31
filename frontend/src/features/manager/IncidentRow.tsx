@@ -2,6 +2,7 @@ import type { Incident } from '../../api'
 import { formatClock, formatPercent } from '../../shared/format'
 import { levelStyle } from '../../shared/severity'
 import { Icon } from '../../shared/ui/Icon'
+import { PulseDot } from '../../shared/ui/PulseDot'
 
 const STATUS_LABEL: Record<Incident['status'], string> = {
   confirmed: 'Подтверждён',
@@ -16,12 +17,12 @@ export function IncidentRow({ incident }: { incident: Incident }) {
   const style = levelStyle(verdict?.level ?? 0)
 
   return (
-    <article className="flex gap-4 border-b border-line px-5 py-4 last:border-b-0 hover:bg-raised/40">
+    <article className="flex gap-4 border-b border-line px-5 py-4 transition last:border-b-0 hover:bg-raised/40">
       <div className="w-24 shrink-0 pt-0.5">
         <span
           className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${style.bg} ${style.text} ${style.border}`}
         >
-          <span className="size-1.5 rounded-full bg-current" />
+          <PulseDot className="text-current" active={incident.status !== 'logged' && (verdict?.level ?? 0) >= 2} />
           {style.short}
         </span>
         <p className="mt-2 font-mono text-[12px] text-ink-mute">{formatClock(incident.ts)}</p>

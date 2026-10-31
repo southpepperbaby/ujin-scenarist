@@ -22,7 +22,7 @@ function items(drafts: number): NavItem[] {
 
 export function Sidebar({ path, drafts }: SidebarProps) {
   return (
-    <aside className="flex w-[232px] shrink-0 flex-col border-r border-line bg-surface">
+    <aside className="glass glass-strong relative z-10 flex w-[232px] shrink-0 flex-col rounded-none border-y-0 border-l-0">
       <div className="flex items-center gap-2.5 px-5 py-5">
         <span className="flex size-9 items-center justify-center rounded-xl bg-accent text-accent-ink">
           <Icon name="spark" size={20} />
@@ -41,8 +41,8 @@ export function Sidebar({ path, drafts }: SidebarProps) {
               key={item.to}
               type="button"
               onClick={() => navigate(item.to)}
-              className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${
-                active ? 'bg-accent-soft text-accent' : 'text-ink-dim hover:bg-raised hover:text-ink'
+              className={`press flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition ${
+                active ? 'bg-accent-soft text-accent shadow-[inset_0_0_0_1px_color-mix(in_oklab,var(--color-accent)_28%,transparent)]' : 'text-ink-dim hover:bg-raised/60 hover:text-ink'
               }`}
             >
               <Icon name={item.icon} size={18} />

@@ -4,8 +4,8 @@ import { api, type Rule, type SimulateReport } from '../../api'
 import { guard, useStore } from '../../store'
 import { RULE_STATUS } from '../../shared/ticket-status'
 import { Button } from '../../shared/ui/Button'
+import { Icon } from '../../shared/ui/Icon'
 import { StatusPill } from '../../shared/ui/StatusPill'
-import { Toggle } from '../../shared/ui/Toggle'
 import { RuleBlock } from './RuleBlock'
 import { RunReport } from './RunReport'
 import { ScreenHeader } from './ScreenHeader'
@@ -58,14 +58,25 @@ export function ScenarioDetailScreen({ rule }: { rule: Rule }) {
           <p className="mt-2 text-[14px] leading-relaxed whitespace-pre-line">{explain}</p>
         </div>
 
-        <div className="flex items-center justify-between rounded-2xl border border-line bg-surface px-4 py-3">
+        <div className="glass flex items-center justify-between rounded-2xl px-4 py-3">
           <div className="flex items-center gap-2">
             <StatusPill label={status.label} className={status.className} />
             <span className="text-[12px] text-ink-mute">
               {rule.scope === 'apartment' ? 'правило квартиры' : 'правило дома'}
             </span>
           </div>
-          <Toggle checked={rule.enabled} onChange={() => void onToggle()} label={rule.title} />
+          <button
+            type="button"
+            onClick={() => void onToggle()}
+            className={`press flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-[12px] font-medium transition ${
+              rule.enabled
+                ? 'bg-ok-soft text-ok hover:brightness-125'
+                : 'bg-raised text-ink-dim hover:text-ink'
+            }`}
+          >
+            <Icon name={rule.enabled ? 'check' : 'play'} size={14} />
+            {rule.enabled ? 'Работает' : 'Включить'}
+          </button>
         </div>
 
         <RuleBlock kind="when" lines={lines.when} />

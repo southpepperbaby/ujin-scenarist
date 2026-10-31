@@ -8,9 +8,9 @@ type TopBarProps = {
 
 export function TopBar({ title, subtitle, demo }: TopBarProps) {
   return (
-    <header className="flex items-center gap-4 border-b border-line px-7 py-4">
+    <header className="glass flex items-center gap-4 rounded-none border-x-0 border-t-0 px-7 py-4">
       <div className="flex-1">
-        <h1 className="text-lg font-semibold">{title}</h1>
+        <h1 className="text-lg">{title}</h1>
         <p className="text-[13px] text-ink-mute">{subtitle}</p>
       </div>
 
