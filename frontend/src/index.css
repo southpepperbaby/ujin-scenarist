@@ -1,10 +1,64 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Roboto Mono", Menlo, monospace;
+
+  --color-base: #15171a;
+  --color-surface: #1d2024;
+  --color-raised: #24282d;
+  --color-field: #2a2e34;
+  --color-line: #2e333a;
+  --color-line-strong: #3a4048;
+
+  --color-accent: #ff6a1f;
+  --color-accent-ink: #ffffff;
+  --color-accent-soft: #3a2415;
+
+  --color-ink: #f2f4f7;
+  --color-ink-dim: #a4adba;
+  --color-ink-mute: #6c7684;
+
+  --color-ok: #2fbf71;
+  --color-ok-soft: #12281d;
+  --color-sev-info: #5b8def;
+  --color-sev-info-soft: #18243a;
+  --color-sev-minor: #e8c33b;
+  --color-sev-minor-soft: #2b2714;
+  --color-sev-major: #ff8a1f;
+  --color-sev-major-soft: #32220f;
+  --color-sev-crit: #ff4d4f;
+  --color-sev-crit-soft: #331619;
+}
+
 :root {
-  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  color-scheme: light;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
 }
 
 body {
   margin: 0;
+  background: var(--color-base);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Скрытый скроллбар для внутренних лент: вертикальная прокрутка остаётся. */
+.scroll-slim {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+.scroll-slim::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scroll-slim::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 3px;
 }
