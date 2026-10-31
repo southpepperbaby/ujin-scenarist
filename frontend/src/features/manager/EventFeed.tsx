@@ -1,6 +1,6 @@
 import type { BusEvent, Device } from '../../api'
 import { formatClockSeconds } from '../../shared/format'
-import { showValue } from '../../devices'
+import { showValue } from '../../shared/device-values'
 
 const KIND_COLOR: Record<string, string> = {
   log: 'text-ink-mute',
