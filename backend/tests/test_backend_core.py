@@ -466,3 +466,19 @@ async def test_rule_check_fails_on_priority_conflict():
                 actions=[SetSignal(device_id="light", signal="lamp", value=1)])
     out = await check_rule(mine, reg, [uk])
     assert not out["passed"] and out["lines"][0]["kind"] == "fail" and "Ночной режим" in out["lines"][0]["text"]
+
+
+@pytest.mark.asyncio
+async def test_barrier_that_does_not_close_becomes_a_draft_for_concierge(monkeypatch):
+    monkeypatch.setattr(ai, "jev", no_jev)
+    _, reg, tickets, _, disp = dispatch_setup()
+    reg.inject("barrier", "jam", 1)
+    for _ in range(4):
+        reg.step_all()
+    assert reg.get("barrier").state()["alarm"] == 1 and reg.get("barrier").alarms() == ["Авария шлагбаума"]
+    inc = await disp.handle("barrier", "alarm", "Авария шлагбаума", held_s=3)
+    t = tickets.tickets[inc["ticket_id"]]
+    assert inc["decision"] == "draft" and t.needs_confirmation == "concierge" and t.category == "access"
+    reg.inject("barrier", "jam", 0)
+    reg.step_all()
+    assert reg.get("barrier").state()["alarm"] == 0 and reg.get("barrier").state()["state"] == 0
