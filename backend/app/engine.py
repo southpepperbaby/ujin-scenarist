@@ -62,7 +62,9 @@ class Engine:
 
     def on_signal(self, event: Event) -> list[asyncio.Task]:
         started = []
-        for rule in self.store.enabled():
+        # Важное правило первым: оно занимает сигнал, а менее важное получает конфликт и видит его в отчёте,
+        # вместо того чтобы молча выполниться и тут же быть перезаписанным.
+        for rule in sorted(self.store.enabled(), key=lambda r: -r.priority):
             t = rule.trigger
             if t.device_id != event.device_id or t.signal != event.data.get("signal"):
                 continue
