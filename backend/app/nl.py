@@ -1,12 +1,14 @@
-"""Правила из текста: Jev определяет намерение, LLM собирает правило по схеме, линтер проверяет.
+"""Правила из текста: один вызов LLM определяет намерение и собирает правило, линтер проверяет.
 
-Цепочка «LLM пишет, Jev судит»:
-1. Jev: это постоянное правило, разовая команда или вопрос о доме? Известная ошибка LLM в умном доме:
-   «выключи свет» превращается в вечное правило. Разделяем это до генерации.
+Цепочка:
+1. LLM отвечает, что это: постоянное правило, разовая команда или вопрос о доме. Известная ошибка
+   в умном доме, когда «выключи свет» превращается в вечное правило, ловится карточкой пересказа:
+   там видно «Сейчас один раз» или «Когда…». Отдельный вызов классификатора для этого не нужен.
 2. LLM получает обезличенный каталог устройств (dev_1, dev_2…) и возвращает JSON строго по схеме.
 3. Ответ разворачивается обратно в реальные id и валидируется Pydantic-схемой правила. При ошибке
    схемы LLM получает текст ошибки и одну попытку исправиться.
-4. Готовое правило проходит линтер и только потом показывается человеку как черновик.
+4. Готовое правило проходит линтер, показывается пересказом из JSON и ждёт «да, подтвердить».
+5. На вопрос о доме отвечают данные (answer_question), а не модель.
 """
 from __future__ import annotations
 
@@ -19,19 +21,19 @@ from .emu import DeviceRegistry
 from .linter import lint, summary
 from .rules import OP_TITLES, Rule, SetSignal
 
-INTENTS = {
-    "rule": "Постоянное правило автоматизации: «когда случится X, делай Y», «если ночью…», «каждый раз когда…»",
-    "command": "Разовая команда прямо сейчас: «выключи свет», «открой шлагбаум», «поставь 22 градуса»",
-    "question": "Вопрос о состоянии дома: «есть ли протечка?», «какая температура в спальне?»",
-}
-
 SYSTEM = """Ты компилятор сценариев умного дома. Переводишь просьбу человека в JSON по схеме.
 Используй ТОЛЬКО устройства и сигналы из каталога. Значения бери из layout или диапазона сигнала.
 Для trigger и conditions подходят любые сигналы, для действий set_signal только сигналы с management rw или w.
 Операторы op: eq, ne, gt, gte, lt, lte, changed.
 
+Сначала определи intent:
+- "rule": постоянное правило («когда случится X, делай Y», «если ночью…», «каждый раз когда…»);
+- "command": разовая команда прямо сейчас («выключи свет», «открой шлагбаум»);
+- "question": вопрос о состоянии дома («есть ли протечка?»). Для вопроса верни только {"intent": "question"}.
+
 Схема ответа (один JSON-объект, без пояснений вокруг):
 {
+  "intent": "rule" | "command",
   "title": "короткое название правила по-русски",
   "trigger": {"device": "dev_N", "signal": "имя", "op": "eq", "value": 1},
   "conditions": [{"device": "dev_N", "signal": "имя", "op": "eq", "value": 1},
@@ -42,7 +44,7 @@ SYSTEM = """Ты компилятор сценариев умного дома. 
     {"type": "dispatch", "category": null, "note": "что передать подрядчику"}
   ]
 }
-Для разовой команды верни тот же формат, но trigger: null, только actions.
+Для разовой команды верни тот же формат с intent "command" и trigger: null.
 Время суток задавай условием type=time (ночь 22:00-07:00, утро 07:00-10:00, день 10:00-18:00, вечер 18:00-22:00).
 dispatch означает заявку подрядчику (сантехник, электрик и т.п.), используй его, если человек просит вызвать мастера.
 Если просьбу нельзя выполнить имеющимися устройствами, верни {"error": "почему"}."""
@@ -71,40 +73,28 @@ def catalog(registry: DeviceRegistry, alias, role: str) -> list[dict]:
     return out
 
 
-async def classify_intent(text: str) -> dict:
-    try:
-        a = await ai.jev({"сообщение жителя": text}, {
-            "intent": {"type": "choice", "instructions": "Что хочет человек?", "criteria": INTENTS}})
-        return {"intent": a["intent"]["choice"], "confidence": a["intent"]["confidence"], "source": "jev"}
-    except ai.AIUnavailable:
-        low = text.lower()
-        intent = "rule" if any(w in low for w in ("если", "когда", "каждый", "всегда")) else "command"
-        return {"intent": intent, "confidence": 0.5, "source": "keywords"}
-
-
 async def compile_text(text: str, registry: DeviceRegistry, rules: list[Rule], role: str = "resident",
                        previous: str | None = None) -> dict:
     """previous: прошлая просьба, если человек нажал «нет, дополнить» и дописал уточнение."""
     if previous:
         text = f"{previous}\nУточнение: {text}"
-    intent = await classify_intent(text)
-    if intent["intent"] == "question":
-        return {"intent": intent, "answer": answer_question(text, registry), "rule": None}
-
     p = ai.Pseudonymizer()
     cat = catalog(registry, p.alias, role)
     user = f"Каталог устройств:\n{json.dumps(cat, ensure_ascii=False)}\n\nПросьба: {text}"
-    if intent["intent"] == "command":
-        user += "\n\nЭто разовая команда: trigger = null."
 
     last_error = ""
     for attempt in range(2):
         prompt = user if not last_error else f"{user}\n\nПрошлый ответ не прошёл проверку: {last_error}. Исправь."
         raw = await ai.llm_json(SYSTEM, prompt)
+        kind = raw.get("intent") if raw.get("intent") in ("rule", "command", "question") else (
+            "rule" if raw.get("trigger") else "command")
+        intent = {"intent": kind, "source": "llm"}
+        if kind == "question":
+            return {"intent": intent, "answer": answer_question(text, registry), "rule": None}
         if "error" in raw and not raw.get("actions"):
             return {"intent": intent, "rule": None, "error": raw["error"]}
         try:
-            rule = _to_rule(raw, p, role, intent["intent"], text)
+            rule = _to_rule(raw, p, role, kind, text)
         except (ValidationError, KeyError, TypeError, ValueError) as exc:
             last_error = str(exc)[:500]
             continue
@@ -114,7 +104,7 @@ async def compile_text(text: str, registry: DeviceRegistry, rules: list[Rule], r
         # а не то, что модель думает о своём ответе. Объяснение от LLM не используется намеренно.
         return {"intent": intent, "text": text, "rule": rule.model_dump(mode="json"), "lint": check,
                 "explanation": explain(rule, registry), "attempts": attempt + 1}
-    return {"intent": intent, "rule": None, "error": f"модель не смогла собрать правило по схеме: {last_error}"}
+    return {"intent": {"intent": "rule", "source": "llm"}, "rule": None, "error": f"модель не смогла собрать правило по схеме: {last_error}"}
 
 
 def _to_rule(raw: dict, p: ai.Pseudonymizer, role: str, intent: str, text: str) -> Rule:
