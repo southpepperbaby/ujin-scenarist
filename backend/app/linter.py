@@ -77,6 +77,10 @@ def _check_refs(rule: Rule, registry: DeviceRegistry) -> list[dict]:
             out.append(issue(WARNING, "order_on_list",
                              f"«{sig.title}» это список состояний, сравнение «больше/меньше» здесь странное.", where))
     for i, a in enumerate(rule.actions):
+        if a.type == "notify" and a.target == "concierge" and rule.owner == "resident" and a.level != "critical":
+            out.append(issue(ERROR, "uk_noise",
+                             "Житель отправляет в УК только критичные сигналы. Сделайте уведомление "
+                             "критичным или адресуйте его себе.", f"то #{i + 1}"))
         if not isinstance(a, SetSignal):
             continue
         where = f"то #{i + 1}"

@@ -86,6 +86,7 @@ class Ticket(BaseModel):
     description: str
     address: str = "ЖК «Северный», корп. 1, кв. 2806"
     device_id: str | None = None
+    scope: Literal["apartment", "building"] = "apartment"
     incident_id: str | None = None
     rule_id: str | None = None
     contractor_id: str | None = None
@@ -131,6 +132,15 @@ SEED_CONTRACTORS = [
     Contractor(id="uk-master", name="Мастер УК (дежурный)", category="general", phone="+7 900 700-70-70",
                sla_minutes=180, call_out_price=0),
 ]
+
+
+def visible_to(t: "Ticket", role: str) -> bool:
+    """Житель видит заявки своей квартиры. УК видит общедомовые и только критичные из квартир."""
+    if role == "resident":
+        return t.scope == "apartment"
+    if role == "uk":
+        return t.scope == "building" or t.level >= 3
+    return True
 
 
 class TicketService:

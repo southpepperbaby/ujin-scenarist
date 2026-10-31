@@ -276,6 +276,22 @@ async def test_major_problem_is_a_ready_draft_for_both_sides(monkeypatch):
     inc = await disp.handle("leak", None, "Заклинило")
     t = tickets.tickets[inc["ticket_id"]]
     assert inc["decision"] == "draft" and t.status == "draft"
-    assert {n["target"] for n in engine.notifications} == {"concierge", "resident"}
+    assert {n["target"] for n in engine.notifications} == {"resident"}   # некритичное не уходит в УК
     await tickets.transition(t.id, "new", "житель")
     assert t.status == "new"
+
+
+def test_resident_cannot_spam_uk_with_minor_notifications():
+    r = rule(actions=[Notify(target="concierge", message="лампочка", level="info")], owner="resident")
+    assert "uk_noise" in codes(r)
+    critical = rule(actions=[Notify(target="concierge", message="потоп", level="critical")], owner="resident")
+    assert "uk_noise" not in codes(critical)
+
+
+def test_uk_sees_only_critical_apartment_tickets():
+    from app.tickets import Ticket, visible_to
+    minor = Ticket(category="electric", level=1, title="t", description="d", scope="apartment")
+    crit = Ticket(category="plumbing", level=3, title="t", description="d", scope="apartment")
+    gate = Ticket(category="access", level=1, title="t", description="d", scope="building")
+    assert [visible_to(t, "uk") for t in (minor, crit, gate)] == [False, True, True]
+    assert [visible_to(t, "resident") for t in (minor, crit, gate)] == [True, True, False]
