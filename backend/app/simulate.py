@@ -11,7 +11,7 @@ import time
 from .bus import EventBus
 from .emu import INPUTS, DeviceRegistry
 from .engine import Engine
-from .rules import Rule, RuleStore
+from .rules import Rule, RuleStore, Trigger
 
 # Как физически вызвать триггер: (семейство, сигнал) → (вход, значение).
 STIMULI = {
@@ -37,7 +37,8 @@ def clone_registry(live: DeviceRegistry) -> tuple[EventBus, DeviceRegistry]:
 
 
 async def simulate(rule: Rule, live: DeviceRegistry, rules: list[Rule], ticks: int = 15,
-                   offline: list[str] | None = None, with_others: bool = True, at: str | None = None) -> dict:
+                   offline: list[str] | None = None, with_others: bool = True, at: str | None = None,
+                   event: Trigger | None = None, preset: list[tuple[str, str, object]] | None = None) -> dict:
     bus, reg = clone_registry(live)
     store = RuleStore()
     store.put(rule.model_copy(update={"enabled": True}))
@@ -55,12 +56,16 @@ async def simulate(rule: Rule, live: DeviceRegistry, rules: list[Rule], ticks: i
     sim_time = at or (windows[0].inside() if windows else None)
     if sim_time:
         engine.clock = lambda: sim_time
+    for device_id, signal, value in preset or []:
+        if device_id in reg.devices:
+            reg.get(device_id).device.signals[signal].value = value
     for device_id in offline or []:
         if device_id in reg.devices:
             reg.set_online(device_id, False)
+    initial = {d: m.state() for d, m in reg.devices.items()}
 
     started = time.time()
-    stimulus = _stimulate(rule, reg)
+    stimulus = _stimulate(event or rule.trigger, reg)
     timeline: list[dict] = []
     cursor = 0
     for tick in range(ticks + 1):
@@ -93,13 +98,14 @@ async def simulate(rule: Rule, live: DeviceRegistry, rules: list[Rule], ticks: i
         "runs": runs,
         "notifications": list(engine.notifications),
         "final_state": final,
+        "initial": initial,
+        "state": {d: m.state() for d, m in reg.devices.items()},
         "timeline": timeline,
         "elapsed_ms": int((time.time() - started) * 1000),
     }
 
 
-def _stimulate(rule: Rule, reg: DeviceRegistry) -> dict:
-    t = rule.trigger
+def _stimulate(t: Trigger, reg: DeviceRegistry) -> dict:
     managed = reg.get(t.device_id)
     hit = STIMULI.get((managed.family, t.signal))
     if hit and hit[0] in INPUTS.get(managed.family, {}):
