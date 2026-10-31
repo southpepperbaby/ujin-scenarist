@@ -267,3 +267,15 @@ def test_time_window_over_midnight():
     from app.rules import TimeCondition
     w = TimeCondition(start="22:00", end="07:00")
     assert w.contains("23:10") and w.contains("06:59") and not w.contains("12:00")
+
+
+@pytest.mark.asyncio
+async def test_major_problem_is_a_ready_draft_for_both_sides(monkeypatch):
+    monkeypatch.setattr(ai, "jev", fake_jev(category="access", level="2", damage=0.2))
+    _, _, tickets, engine, disp = dispatch_setup()
+    inc = await disp.handle("leak", None, "Заклинило")
+    t = tickets.tickets[inc["ticket_id"]]
+    assert inc["decision"] == "draft" and t.status == "draft"
+    assert {n["target"] for n in engine.notifications} == {"concierge", "resident"}
+    await tickets.transition(t.id, "new", "житель")
+    assert t.status == "new"

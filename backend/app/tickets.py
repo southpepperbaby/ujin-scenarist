@@ -91,7 +91,6 @@ class Ticket(BaseModel):
     contractor_id: str | None = None
     contractor_name: str | None = None
     sla_due: float | None = None
-    cancel_until: float | None = None       # мажор: УК может отменить до этого момента
     needs_confirmation: Literal["resident", "concierge"] | None = None
     reasoning: list[str] = []               # почему автодиспетчер так решил, простым языком
     delivery: list[dict] = []
@@ -180,9 +179,6 @@ class TicketService:
         t = self.tickets[ticket_id]
         if status not in TRANSITIONS[t.status]:
             raise ValueError(f"нельзя перевести заявку из «{STATUS_TITLES[t.status]}» в «{STATUS_TITLES[status]}»")
-        if status == "cancelled" and t.status == "new" and t.cancel_until and time.time() > t.cancel_until \
-                and actor != "подрядчик":
-            raise ValueError("окно отмены закрыто, подрядчик уже выехал")
         t.status = status
         t.history.append(HistoryItem(status=status, actor=actor, note=note))
         if status == "new":
@@ -244,16 +240,3 @@ class TicketService:
                 last = str(exc) or exc.__class__.__name__
             await asyncio.sleep(0.5 * attempt)
         return {"channel": "webhook", "ok": False, "attempts": attempts, "url": url, "detail": last}
-
-    # ---------- окно отмены мажора ----------
-
-    async def watch_cancel_windows(self) -> None:
-        """Мажор уходит подрядчику сразу, но в первые минуты УК может отменить: фиксируем закрытие окна."""
-        while True:
-            now = time.time()
-            for t in self.tickets.values():
-                if t.cancel_until and t.status == "new" and now > t.cancel_until and not any(
-                        h.note == "окно отмены закрыто" for h in t.history):
-                    t.history.append(HistoryItem(status=t.status, actor="система", note="окно отмены закрыто"))
-                    self._emit(t, "status")
-            await asyncio.sleep(5)
