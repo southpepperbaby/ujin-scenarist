@@ -295,3 +295,19 @@ def test_uk_sees_only_critical_apartment_tickets():
     gate = Ticket(category="access", level=1, title="t", description="d", scope="building")
     assert [visible_to(t, "uk") for t in (minor, crit, gate)] == [False, True, True]
     assert [visible_to(t, "resident") for t in (minor, crit, gate)] == [True, True, False]
+
+
+@pytest.mark.asyncio
+async def test_uk_can_enable_auto_send_for_building_minor(monkeypatch):
+    monkeypatch.setattr(ai, "jev", fake_jev(category="access", level="1", damage=0.1))
+    _, _, tickets, engine, disp = dispatch_setup()
+    first = await disp.handle("barrier", None, "Авария шлагбаума")
+    assert first["decision"] == "draft"
+    tickets.tickets.clear()
+    disp.policy.auto_send_building = True
+    second = await disp.handle("barrier", None, "Авария шлагбаума")
+    assert second["decision"] == "auto" and tickets.tickets[second["ticket_id"]].status == "new"
+    disp.policy.auto_categories = ["lift"]
+    tickets.tickets.clear()
+    third = await disp.handle("barrier", None, "Авария шлагбаума")
+    assert third["decision"] == "draft"

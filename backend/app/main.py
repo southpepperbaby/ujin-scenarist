@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from . import ai, config, gherkin, nl
 from .bus import EventBus
-from .dispatcher import Dispatcher
+from .dispatcher import Dispatcher, Policy
 from .emu import REGISTRY, DeviceRegistry, family_info
 from .engine import Engine
 from .linter import lint, summary
@@ -360,6 +360,17 @@ def contractors():
 def put_contractor(contractor_id: str, c: Contractor):
     c.id = contractor_id
     return tickets.upsert_contractor(c).model_dump()
+
+
+@app.get("/api/policy")
+def get_policy():
+    return dispatcher.policy
+
+
+@app.put("/api/policy")
+def put_policy(policy: Policy):
+    dispatcher.policy = policy
+    return policy
 
 
 @app.get("/api/dictionaries")

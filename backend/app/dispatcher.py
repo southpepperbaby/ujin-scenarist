@@ -22,6 +22,8 @@ from typing import Any
 from . import ai
 from .bus import Event, EventBus
 from .emu import DeviceRegistry
+from pydantic import BaseModel
+
 from .tickets import CATEGORY_TITLES, Ticket, TicketService
 
 DEBOUNCE = 3.0
@@ -60,6 +62,13 @@ CATEGORY_CRITERIA = {
 }
 
 
+class Policy(BaseModel):
+    """Настройки УК для автодиспетчера."""
+    auto_send_building: bool = False          # некритичные общедомовые заявки уходят без подтверждения
+    auto_categories: list[str] = list(CATEGORY_TITLES)   # для каких категорий работает автоотправка
+    daily_limit: int = DAILY_LIMIT
+
+
 class Dispatcher:
     def __init__(self, bus: EventBus, registry: DeviceRegistry, tickets: TicketService, notify):
         self.bus = bus
@@ -67,6 +76,7 @@ class Dispatcher:
         self.tickets = tickets
         self.notify = notify                      # Engine.notify(target, message, level, extra=)
         self.incidents: dict[str, dict] = {}
+        self.policy = Policy()
         self._pending: dict[tuple[str, str], asyncio.Task] = {}
         self.debounce = DEBOUNCE
         self.offline_debounce = OFFLINE_DEBOUNCE
@@ -144,8 +154,8 @@ class Dispatcher:
         if open_ticket:
             why.append(f"По этому устройству уже открыта заявка {open_ticket.id}, новую не создаём.")
             return self._decide(inc, "duplicate", ticket=open_ticket)
-        if self.tickets.count_today(device_id) >= DAILY_LIMIT:
-            why.append(f"Лимит {DAILY_LIMIT} заявки в сутки на устройство исчерпан, нужен взгляд человека.")
+        if self.tickets.count_today(device_id) >= self.policy.daily_limit:
+            why.append(f"Лимит {self.policy.daily_limit} заявки в сутки на устройство исчерпан, нужен взгляд человека.")
             who = "resident" if managed.scope == "apartment" else "concierge"
             self.notify(who, f"{title}: лимит автозаявок исчерпан, проверьте вручную.", "warning",
                         extra={"incident_id": inc["id"]})
@@ -178,6 +188,12 @@ class Dispatcher:
             why.append(f"Уверенность {conf:.0%} между {LOW:.0%} и {HIGH:.0%}: готовый черновик, решает человек.")
             ticket.needs_confirmation = confirm_by
             decision = "draft"
+        elif level < 3 and managed.scope == "building" and self.policy.auto_send_building \
+                and verdict["category"] in self.policy.auto_categories:
+            ticket.status = "new"
+            why.append(f"{LEVEL_TITLES[level].capitalize()}, общедомовое: УК включила автоотправку для "
+                       f"«{CATEGORY_TITLES[verdict['category']]}», заявка ушла без подтверждения.")
+            decision = "auto"
         elif level < 3:
             why.append(f"{LEVEL_TITLES[level].capitalize()}: заявка готова, отправит житель или УК одной кнопкой.")
             ticket.needs_confirmation = confirm_by
