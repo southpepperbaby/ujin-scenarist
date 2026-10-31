@@ -10,7 +10,7 @@ import {
   type SignalCondition,
   type Trigger,
 } from '../../api'
-import { OP_TITLE } from '../../rules'
+import { OP_TITLE } from '../../shared/rule/rule-lines'
 import { Button } from '../../shared/ui/Button'
 import { ErrorNote, Field, SelectInput, TextInput } from '../../shared/ui/Fields'
 import { Modal } from '../../shared/ui/Modal'
