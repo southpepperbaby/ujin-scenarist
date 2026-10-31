@@ -439,3 +439,30 @@ def test_slow_subscriber_is_asked_to_reconnect():
     for _ in range(5):
         bus.emit("tick")
     assert q.qsize() == 1 and q.get_nowait() is None
+
+
+@pytest.mark.asyncio
+async def test_rule_check_reports_success_and_offline_warning():
+    from app.rule_check import check_rule
+    from app.seed import seed_rules
+    bus, reg = house()
+    rule = next(r for r in seed_rules() if r.id == "leak-shutoff").model_copy(
+        update={"trigger": Trigger(device_id="leak", signal="leak", value=1),
+                "actions": [SetSignal(device_id="valve", signal="valve", value=0),
+                            Notify(target="concierge", level="critical", message="Протечка")]})
+    out = await check_rule(rule, reg, [])
+    assert out["passed"]
+    assert out["lines"][0]["kind"] == "ok" and "консьерж получил уведомление" in out["lines"][0]["text"]
+    assert out["lines"][1]["kind"] == "warn" and out["lines"][1]["text"].endswith("но консьерж узнает о сбое.")
+
+
+@pytest.mark.asyncio
+async def test_rule_check_fails_on_priority_conflict():
+    from app.rule_check import check_rule
+    bus, reg = house()
+    uk = Rule(id="uk", title="Ночной режим", owner="uk", priority=100, trigger=Trigger(device_id="leak", signal="leak", value=1),
+              actions=[SetSignal(device_id="light", signal="lamp", value=0)])
+    mine = Rule(id="mine", title="Свет при протечке", trigger=Trigger(device_id="leak", signal="leak", value=1),
+                actions=[SetSignal(device_id="light", signal="lamp", value=1)])
+    out = await check_rule(mine, reg, [uk])
+    assert not out["passed"] and out["lines"][0]["kind"] == "fail" and "Ночной режим" in out["lines"][0]["text"]

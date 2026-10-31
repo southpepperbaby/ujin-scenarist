@@ -262,7 +262,15 @@ export type Compiled = {
   error?: string
 }
 
-export type Confirmed = { kind: 'rule' | 'command'; explanation: string; rule?: Rule; lint?: Lint; run?: RunRecord }
+export type CheckLine = { kind: 'ok' | 'warn' | 'fail'; text: string }
+export type Confirmed = {
+  kind: 'rule' | 'command'
+  explanation: string
+  rule?: Rule
+  lint?: Lint
+  run?: RunRecord
+  check?: { passed: boolean; lines: CheckLine[] } | null // прогон на копии дома при «Да»
+}
 
 export type Policy = { auto_send_building: boolean; auto_categories: string[]; daily_limit: number }
 

@@ -1,6 +1,9 @@
 import { useState } from 'react'
 
+import type { Confirmed } from '../../api'
+
 import { navigate } from '../../app/routing'
+import { CheckResult } from '../../shared/rule/CheckResult'
 import { ConfirmCard } from '../../shared/rule/ConfirmCard'
 import { useRuleChat } from '../../shared/rule/use-rule-chat'
 import { Bubble } from '../../shared/ui/Bubble'
@@ -14,18 +17,23 @@ import { TypingDots } from '../../shared/ui/TypingDots'
 export function ScenarioChat() {
   const { text, setText, asked, previous, result, error, busy, send, confirm, refine, reset } = useRuleChat('resident')
   const [done, setDone] = useState<string | null>(null)
+  const [checked, setChecked] = useState<Confirmed | null>(null)
 
   const onCompile = async () => {
     setDone(null)
+    setChecked(null)
     await send()
   }
 
+  // «Да» у правила сразу запускает прогон на копии дома: итог показываем тут же, в чате.
   const onConfirm = async () => {
     const res = await confirm()
     if (!res) return
-    reset()
-    if (res.kind === 'rule' && res.rule) navigate(`/resident/scenarios/${res.rule.id}`)
-    else setDone('Готово, выполнено.')
+    if (res.kind === 'rule') setChecked(res)
+    else {
+      reset()
+      setDone('Готово, выполнено.')
+    }
   }
 
   return (
@@ -49,11 +57,28 @@ export function ScenarioChat() {
       {previous && !result && !busy && (
         <p className="text-[12px] text-ink-mute">
           Напишите, что уточнить, или{' '}
-          <button type="button" onClick={() => { reset(); setDone(null) }} className="underline hover:text-ink">
+          <button type="button" onClick={() => { reset(); setDone(null); setChecked(null) }} className="underline hover:text-ink">
             начните заново
           </button>
           .
         </p>
+      )}
+
+      {checked && (
+        <CheckResult
+          res={checked}
+          action={
+            checked.rule && (
+              <button
+                type="button"
+                onClick={() => navigate(`/resident/scenarios/${checked.rule?.id}`)}
+                className="text-[13px] text-accent underline"
+              >
+                Открыть правило
+              </button>
+            )
+          }
+        />
       )}
 
       {done && <p className="rounded-xl border border-ok/30 bg-ok-soft px-3 py-2 text-[13px] text-ok">{done}</p>}
