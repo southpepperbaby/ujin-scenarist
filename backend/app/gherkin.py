@@ -10,12 +10,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from .dictionaries import OP_SIGNS
 from .emu import DeviceRegistry
-from .rules import Condition, Notify, Rule, SetSignal, TimeCondition, Trigger
+from .rules import Notify, Rule, SetSignal, TimeCondition, Trigger
 from .simulate import simulate
 
 KEYWORDS = r"(Допустим|Дано|Пусть|Когда|Если|Тогда|То|И|Но|А также|К тому же)"
-OPS_WORDS = {"eq": "=", "ne": "≠", "gt": ">", "gte": "≥", "lt": "<", "lte": "≤"}
+OPS_WORDS = OP_SIGNS
 WORD_OPS = {v: k for k, v in OPS_WORDS.items()}
 
 
@@ -82,20 +83,14 @@ class _Namer:
         self.registry = registry
 
     def dev(self, device_id: str) -> str:
-        m = self.registry.devices.get(device_id)
-        return m.title if m else device_id
+        return self.registry.title(device_id)
 
     def sig(self, device_id: str, signal: str) -> str:
-        m = self.registry.devices.get(device_id)
-        s = m.device.signals.get(signal) if m else None
+        s = self.registry.signal(device_id, signal)
         return s.title if s else signal
 
     def val(self, device_id: str, signal: str, value) -> str:
-        m = self.registry.devices.get(device_id)
-        s = m.device.signals.get(signal) if m else None
-        if s and s.layout:
-            return s.layout.get(value, s.layout.get(str(value), str(value)))
-        return str(value)
+        return self.registry.label(device_id, signal, value)
 
     def find_device(self, title: str):
         title = title.strip().lower()

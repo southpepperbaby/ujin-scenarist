@@ -22,6 +22,7 @@ from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from .dictionaries import OP_SIGNS
 from .emu import INPUTS, REGISTRY  # noqa: I001  emu кладёт папку эмуляторов в sys.path
 
 from core import Device, Signal  # noqa: E402  тот же модуль ядра, что у готовых типов
@@ -98,7 +99,7 @@ class Threshold(BaseModel):
 
 Behavior = Annotated[Union[Drift, Effect, Threshold], Field(discriminator="type")]
 OPS = {"gt": lambda a, b: a > b, "gte": lambda a, b: a >= b, "lt": lambda a, b: a < b, "lte": lambda a, b: a <= b}
-OP_WORDS = {"gt": ">", "gte": "≥", "lt": "<", "lte": "≤"}
+OP_WORDS = OP_SIGNS
 
 
 class DeviceType(BaseModel):

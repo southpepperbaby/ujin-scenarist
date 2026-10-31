@@ -18,19 +18,10 @@ import httpx
 from pydantic import BaseModel, Field
 
 from . import config
+from .dictionaries import CATEGORY_TITLES  # noqa: F401  отдаётся дальше как tickets.CATEGORY_TITLES
 from .bus import EventBus
 
 Category = Literal["plumbing", "electric", "access", "lift", "fire", "heating", "general"]
-
-CATEGORY_TITLES = {
-    "plumbing": "Сантехника и водоснабжение",
-    "electric": "Электрика и освещение",
-    "access": "Ворота, шлагбаум, СКУД",
-    "lift": "Лифтовое хозяйство",
-    "fire": "Пожарная безопасность",
-    "heating": "Отопление и вентиляция",
-    "general": "Общие работы",
-}
 
 Status = Literal["draft", "new", "accepted", "in_progress", "done", "closed", "cancelled"]
 
@@ -135,13 +126,17 @@ SEED_CONTRACTORS = [
 ]
 
 
-def visible_to(t: "Ticket", role: str) -> bool:
-    """Житель видит заявки своей квартиры. УК видит общедомовые и только критичные из квартир."""
+def visible_to_role(scope: str, level: int, role: str) -> bool:
+    """Житель видит свою квартиру. УК видит общедомовое и только критичное из квартир."""
     if role == "resident":
-        return t.scope == "apartment"
+        return scope == "apartment"
     if role == "uk":
-        return t.scope == "building" or t.level >= 3
+        return scope == "building" or level >= 3
     return True
+
+
+def visible_to(t: "Ticket", role: str) -> bool:
+    return visible_to_role(t.scope, t.level, role)
 
 
 class TicketService:
