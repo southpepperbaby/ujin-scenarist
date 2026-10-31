@@ -17,7 +17,9 @@ from typing import Awaitable, Callable
 
 from .bus import Event, EventBus
 from .emu import DeviceRegistry, DeviceUnavailable
-from .rules import Dispatch, Notify, Rule, RuleStore, SetSignal, compare
+from datetime import datetime
+
+from .rules import Dispatch, Notify, Rule, RuleStore, SetSignal, TimeCondition, compare
 
 RETRIES = 3
 RETRY_PAUSE = 1.0
@@ -29,12 +31,15 @@ DispatchHook = Callable[[Rule, Dispatch, dict], Awaitable[dict]]
 
 class Engine:
     def __init__(self, registry: DeviceRegistry, bus: EventBus, store: RuleStore,
-                 dispatch_hook: DispatchHook | None = None, retry_pause: float = RETRY_PAUSE):
+                 dispatch_hook: DispatchHook | None = None, retry_pause: float = RETRY_PAUSE,
+                 time_scale: float = 1.0):
         self.registry = registry
         self.bus = bus
         self.store = store
         self.dispatch_hook = dispatch_hook
         self.retry_pause = retry_pause
+        self.time_scale = time_scale          # прогон в песочнице ускоряет задержки действий
+        self.clock = lambda: datetime.now().strftime("%H:%M")   # прогон подменяет «который час»
         self.runs: deque[dict] = deque(maxlen=300)
         self.notifications: deque[dict] = deque(maxlen=300)
         self._last_fire: dict[str, float] = {}
@@ -85,13 +90,12 @@ class Engine:
         run = self._record(rule, event, status="running")
         for cond in rule.conditions:
             ok, detail = self._check(cond)
-            run["conditions"].append({"device_id": cond.device_id, "signal": cond.signal,
-                                      "op": cond.op, "value": cond.value, "ok": ok, "detail": detail})
+            run["conditions"].append({**cond.model_dump(mode="json"), "ok": ok, "detail": detail})
             if not ok:
                 return self._finish(run, "skipped", f"условие не выполнено: {detail}")
         for action in rule.actions:
             if action.delay_s:
-                await asyncio.sleep(action.delay_s)
+                await asyncio.sleep(action.delay_s / self.time_scale)
             result = await self._perform(rule, action, run)
             run["actions"].append(result)
         failed = [a for a in run["actions"] if a["status"] == "error"]
@@ -99,6 +103,9 @@ class Engine:
         return self._finish(run, status)
 
     def _check(self, cond) -> tuple[bool, str]:
+        if isinstance(cond, TimeCondition):
+            now = self.clock()
+            return cond.contains(now), f"сейчас {now}, окно {cond.start}-{cond.end}"
         try:
             managed = self.registry.get(cond.device_id)
         except KeyError:
