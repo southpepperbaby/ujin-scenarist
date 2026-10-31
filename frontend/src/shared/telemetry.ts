@@ -13,6 +13,11 @@ const FLAP_LIMIT = 4
 
 const recentTicks = new Map<string, number[]>()
 
+/** Перед разбором загруженной истории: иначе события, уже учтённые с шины, посчитаются дважды. */
+export function resetTelemetry(): void {
+  recentTicks.clear()
+}
+
 function isFlapping(event: BusEvent): boolean {
   const key = `${event.device_id}.${event.signal}`
   const since = event.ts - FLAP_WINDOW_S

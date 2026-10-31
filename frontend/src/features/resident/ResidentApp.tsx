@@ -1,3 +1,6 @@
+import { useEffect } from 'react'
+
+import { inSection, tail } from '../../app/routing'
 import { useStore } from '../../store'
 import { AlertsScreen } from './AlertsScreen'
 import { HomeScreen } from './HomeScreen'
@@ -7,8 +10,8 @@ import { ScenarioDetailScreen } from './ScenarioDetailScreen'
 import { ScenariosScreen } from './ScenariosScreen'
 import { TabBar } from './TabBar'
 
-function NotFound() {
-  return <p className="px-5 py-10 text-center text-[13px] text-ink-mute">Правило не найдено.</p>
+function Placeholder({ text }: { text: string }) {
+  return <p className="px-5 py-10 text-center text-body text-ink-mute">{text}</p>
 }
 
 type ResidentAppProps = {
@@ -18,18 +21,34 @@ type ResidentAppProps = {
 
 export function ResidentApp({ path, demo }: ResidentAppProps) {
   const rules = useStore((state) => state.rules)
-  const notifications = useStore((state) => state.notifications)
-  const unread = notifications.filter((notice) => notice.target === 'resident').length
+  const loaded = useStore((state) => state.loaded)
+  const markSeen = useStore((state) => state.markSeen)
+  const unread = useStore(
+    (state) => state.notifications.filter((notice) => notice.target === 'resident' && notice.ts > state.seenTs).length,
+  )
+  const onAlerts = path === '/resident/alerts'
 
-  const detailId = path.startsWith('/resident/scenarios/') ? path.split('/')[3] : null
+  // Пока вкладка «События» открыта, всё пришедшее сразу считается прочитанным.
+  const lastTs = useStore((state) => state.notifications.at(-1)?.ts ?? 0)
+  useEffect(() => {
+    if (onAlerts) markSeen()
+  }, [onAlerts, lastTs, markSeen])
+
+  const detailId = tail(path, '/resident/scenarios')
   const rule = detailId ? rules.find((item) => item.id === detailId) : null
 
   let screen
-  if (detailId) screen = rule ? <ScenarioDetailScreen rule={rule} /> : <NotFound />
-  else if (path === '/resident/scenarios') screen = <ScenariosScreen />
-  else if (path === '/resident/alerts') screen = <AlertsScreen demo={demo} />
+  if (detailId) {
+    if (rule) screen = <ScenarioDetailScreen key={rule.id} rule={rule} />
+    else screen = <Placeholder text={loaded ? 'Сценарий не найден.' : 'Загружаем сценарий…'} />
+  } else if (inSection(path, '/resident/scenarios')) screen = <ScenariosScreen />
+  else if (onAlerts) screen = <AlertsScreen demo={demo} />
   else if (path === '/resident/profile') screen = <ProfileScreen />
   else screen = <HomeScreen demo={demo} />
 
-  return <PhoneShell tabBar={<TabBar path={path} unread={unread} />}>{screen}</PhoneShell>
+  return (
+    <PhoneShell path={path} tabBar={<TabBar path={path} unread={unread} />}>
+      {screen}
+    </PhoneShell>
+  )
 }

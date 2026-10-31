@@ -11,7 +11,10 @@ export type SeverityStyle = {
   icon: IconName
 }
 
-/** Классы заданы литералами: Tailwind не видит динамически собранные имена. */
+/**
+ * Классы заданы литералами: Tailwind не видит динамически собранные имена.
+ * Уровень различим не только цветом, но и формой иконки: круг «i», круг «!», треугольник, восьмиугольник.
+ */
 export const LEVELS: SeverityStyle[] = [
   {
     level: 0,
@@ -20,7 +23,7 @@ export const LEVELS: SeverityStyle[] = [
     text: 'text-sev-info',
     bg: 'bg-sev-info-soft',
     border: 'border-sev-info/35',
-    icon: 'battery',
+    icon: 'info',
   },
   {
     level: 1,
@@ -29,7 +32,7 @@ export const LEVELS: SeverityStyle[] = [
     text: 'text-sev-minor',
     bg: 'bg-sev-minor-soft',
     border: 'border-sev-minor/35',
-    icon: 'bulb',
+    icon: 'circleAlert',
   },
   {
     level: 2,
@@ -47,12 +50,12 @@ export const LEVELS: SeverityStyle[] = [
     text: 'text-sev-crit',
     bg: 'bg-sev-crit-soft',
     border: 'border-sev-crit/35',
-    icon: 'droplet',
+    icon: 'octagon',
   },
 ]
 
 export function levelStyle(level: number | null | undefined): SeverityStyle {
-  return LEVELS[Math.min(Math.max(level ?? 0, 0), LEVELS.length - 1)]
+  return LEVELS[Math.min(Math.max(level ?? 0, 0), LEVELS.length - 1)] ?? LEVELS[0]!
 }
 
 /** Уровень уведомления движка (info / warning / critical) в ту же шкалу. */

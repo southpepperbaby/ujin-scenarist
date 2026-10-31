@@ -9,7 +9,7 @@ type BubbleProps = {
 export function Bubble({ children, mine = false }: BubbleProps) {
   return (
     <div
-      className={`rise max-w-[88%] rounded-2xl px-4 py-3 text-[14px] leading-snug whitespace-pre-line ${
+      className={`rise max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-snug whitespace-pre-line ${
         mine ? 'ml-auto bg-accent text-accent-ink' : 'glass text-ink'
       }`}
     >

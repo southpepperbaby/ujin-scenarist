@@ -1,6 +1,8 @@
-import type { ReactNode } from 'react'
+import { memo, useState, type ReactNode } from 'react'
 
 import { api, type Device } from '../../api'
+import { isAlarm } from '../../shared/device-values'
+import { guard } from '../../store'
 import { Icon } from '../../shared/ui/Icon'
 import { deviceIcon } from '../resident/device-icons'
 import { DeviceSignalTable } from './DeviceSignalTable'
@@ -12,15 +14,10 @@ type DeviceCardProps = {
   actions?: ReactNode
 }
 
-function hasAlarm(device: Device): boolean {
-  return device.signals.some(
-    (signal) =>
-      ['alarm', 'emergency', 'leak', 'fault'].includes(signal.name) && Number(signal.value) === 1,
-  )
-}
-
-export function DeviceCard({ device, controls, actions }: DeviceCardProps) {
-  const alarm = hasAlarm(device)
+/** Карточка в memo: тик одного датчика не перерисовывает остальные карточки сетки. */
+export const DeviceCard = memo(function DeviceCard({ device, controls, actions }: DeviceCardProps) {
+  // Тот же признак аварии, что у дашборда и плиток жителя: учитывает и alarms своих типов.
+  const alarm = isAlarm(device)
 
   return (
     <article
@@ -34,21 +31,24 @@ export function DeviceCard({ device, controls, actions }: DeviceCardProps) {
             alarm ? 'bg-sev-crit/20 text-sev-crit' : 'bg-raised text-ink-dim'
           }`}
         >
-          <Icon name={deviceIcon(device.family)} size={18} />
+          <Icon name={alarm ? 'octagon' : deviceIcon(device.family)} size={18} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[14px] font-medium">{device.title}</p>
-          <p className="truncate text-[12px] text-ink-mute">
+          <p className="truncate text-sm font-medium">
+            {device.title}
+            {alarm && <span className="sr-only"> — авария</span>}
+          </p>
+          <p className="truncate text-meta text-ink-mute">
             {device.room} · {device.scope === 'building' ? 'дом' : 'квартира'} · {device.id}
           </p>
         </div>
         {!device.online && (
-          <span className="shrink-0 rounded-full border border-sev-major/35 bg-sev-major-soft px-2 py-0.5 text-[10px] text-sev-major">
+          <span className="shrink-0 rounded-full border border-sev-major/35 bg-sev-major-soft px-2 py-0.5 text-micro text-sev-major">
             нет связи
           </span>
         )}
         {device.online && device.ujin && (
-          <span className="shrink-0 rounded-full border border-ok/35 bg-ok-soft px-2 py-0.5 text-[10px] text-ok">
+          <span className="shrink-0 rounded-full border border-ok/35 bg-ok-soft px-2 py-0.5 text-micro text-ok">
             Ujin
           </span>
         )}
@@ -69,16 +69,24 @@ export function DeviceCard({ device, controls, actions }: DeviceCardProps) {
       <DeviceSignalTable device={device} controls={controls} />
     </article>
   )
-}
+})
 
 function InputButton({ deviceId, input, value }: { deviceId: string; input: string; value: number }) {
+  const [busy, setBusy] = useState(false)
+  const inject = async () => {
+    setBusy(true)
+    await guard(api.inject(deviceId, input, value))
+    setBusy(false)
+  }
   return (
     <button
       type="button"
-      onClick={() => void api.inject(deviceId, input, value)}
-      className="rounded-lg border border-line bg-raised px-2 py-0.5 text-[12px] text-ink-dim transition hover:text-ink"
+      onClick={() => void inject()}
+      disabled={busy}
+      aria-label={`${input}: ${value === 1 ? 'подать' : 'снять'}`}
+      className="rounded-lg border border-line bg-raised px-2 py-0.5 text-meta text-ink-dim transition hover:text-ink disabled:opacity-50"
     >
-      {input} {value === 1 ? '▲' : '▼'}
+      {input} <span aria-hidden="true">{value === 1 ? '▲' : '▼'}</span>
     </button>
   )
 }

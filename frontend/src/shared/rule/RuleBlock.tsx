@@ -18,13 +18,13 @@ export function RuleBlock({ kind, lines }: RuleBlockProps) {
 
   return (
     <div className="rounded-2xl border border-line bg-surface p-4">
-      <p className={`flex items-center gap-2 text-[11px] font-semibold tracking-widest ${style.accent}`}>
+      <p className={`flex items-center gap-2 text-caption font-semibold tracking-widest ${style.accent}`}>
         <Icon name={style.icon} size={14} />
         {style.title}
       </p>
       <ul className="mt-2.5 space-y-2">
-        {lines.map((line) => (
-          <li key={line} className="flex gap-2.5 text-[14px] leading-snug text-ink">
+        {lines.map((line, index) => (
+          <li key={`${index}-${line}`} className="flex gap-2.5 text-sm leading-snug text-ink">
             <span className="mt-2 size-1.5 shrink-0 rounded-full bg-line-strong" />
             {line}
           </li>

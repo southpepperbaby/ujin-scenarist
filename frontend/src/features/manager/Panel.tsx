@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 
-import { navigate } from '../../app/routing'
+import { href } from '../../app/routing'
 
 type PanelProps = {
   title: string
@@ -8,19 +8,16 @@ type PanelProps = {
   action?: { label: string; to: string }
 }
 
+/** Плотная панель контента: заголовок, ссылка «Все …» и тело. Стекло — только у навигации. */
 export function Panel({ title, children, action }: PanelProps) {
   return (
-    <section className="glass overflow-hidden rounded-2xl">
+    <section className="surface @container overflow-hidden rounded-2xl" aria-label={title}>
       <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
         <h2 className="text-sm font-semibold">{title}</h2>
         {action && (
-          <button
-            type="button"
-            onClick={() => navigate(action.to)}
-            className="text-[13px] font-medium text-accent hover:brightness-110"
-          >
+          <a href={href(action.to)} className="text-body font-medium text-accent hover:brightness-110">
             {action.label}
-          </button>
+          </a>
         )}
       </div>
       {children}
