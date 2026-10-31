@@ -17,8 +17,8 @@ export function TicketRow({ ticket, categories, onChanged }: TicketRowProps) {
   const style = levelStyle(ticket.level)
   const overdue = isOverdue(ticket.sla_due)
 
-  const send = async () => {
-    await guard(api.moveTicket(ticket.id, 'new'))
+  const move = async (status: 'new' | 'cancelled') => {
+    await guard(api.moveTicket(ticket.id, status, 'консьерж'))
     onChanged()
   }
 
@@ -39,14 +39,23 @@ export function TicketRow({ ticket, categories, onChanged }: TicketRowProps) {
       </span>
 
       {ticket.status === 'draft' ? (
-        <button
-          type="button"
-          onClick={() => void send()}
-          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-accent-ink transition hover:brightness-110"
-        >
-          <Icon name="arrowRight" size={13} />
-          Отправить
-        </button>
+        <div className="flex shrink-0 gap-1.5">
+          <button
+            type="button"
+            onClick={() => void move('new')}
+            className="flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1 text-[12px] font-medium text-accent-ink transition hover:brightness-110"
+          >
+            <Icon name="arrowRight" size={13} />
+            Отправить
+          </button>
+          <button
+            type="button"
+            onClick={() => void move('cancelled')}
+            className="rounded-lg border border-line px-2.5 py-1 text-[12px] text-ink-dim transition hover:text-ink"
+          >
+            Отменить
+          </button>
+        </div>
       ) : (
         <StatusPill label={status.label} className={status.className} />
       )}

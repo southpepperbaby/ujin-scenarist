@@ -40,7 +40,7 @@ export function RunReport({ report, devices }: RunReportProps) {
               <span className="text-[13px] leading-snug text-ink-dim">
                 {describeAction(step, devices)}
                 {step.status !== 'ok' && step.detail && (
-                  <span className="text-ink-mute"> — {step.detail}</span>
+                  <span className="text-ink-mute">: {step.detail}</span>
                 )}
               </span>
             </li>
