@@ -94,3 +94,56 @@ def test_custom_type_survives_restart(tmp_path):
         assert DeviceRegistry(EventBus()).create("window").state()["angle"] == 15
     finally:
         again.delete("window")
+
+
+PRESSURE = {
+    "family": "pressure", "title": "Датчик давления",
+    "signals": [
+        {"name": "bar", "title": "Давление", "group": "property", "measure": "бар", "min": 0, "max": 12, "default": 5},
+        {"name": "battery", "title": "Батарея", "group": "property", "measure": "%", "min": 0, "max": 100,
+         "default": 100},
+        {"name": "status", "title": "Состояние", "group": "event", "type": "list",
+         "layout": {"0": "норма", "1": "авария"}, "alarm_value": 1},
+        {"name": "pump", "title": "Насос", "group": "command", "type": "switch"},
+    ],
+    "behaviors": [
+        {"type": "drift", "signal": "battery", "step": -0.5},
+        {"type": "effect", "command": "pump", "value": 1, "target": "bar", "target_value": 9, "delay": 2},
+        {"type": "threshold", "source": "bar", "op": "gt", "limit": 8, "target": "status", "value": 1,
+         "else_value": 0},
+    ],
+}
+
+
+def test_behaviors_run_on_tick():
+    types = DeviceTypes()
+    types.put(DeviceType.model_validate(PRESSURE))
+    try:
+        reg = DeviceRegistry(EventBus())
+        m = reg.create("pressure", device_id="p1")
+        reg.command("p1", "pump", 1)
+        reg.step_all()
+        assert m.state()["bar"] == 5 and m.state()["status"] == 0      # насос ещё не дожал
+        reg.step_all()
+        assert m.state()["bar"] == 9 and m.state()["status"] == 1      # через 2 тика давление и авария
+        assert m.state()["battery"] == 99.0                            # батарея садится сама
+        reg.inject("p1", "bar", 3)
+        reg.step_all()
+        assert m.state()["status"] == 0                                # ниже порога обратно «норма»
+        text = " ".join(types.types["pressure"].describe())
+        assert "Батарея» сама падает на 0.5 % за тик" in text and "через 2 тик." in text and "> 8 бар" in text
+    finally:
+        types.delete("pressure")
+
+
+def test_behavior_must_reference_sensible_signals():
+    bad = {**PRESSURE, "behaviors": [{"type": "drift", "signal": "status", "step": 1}]}
+    with pytest.raises(ValidationError, match="само меняется только измерение"):
+        DeviceType.model_validate(bad)
+    bad = {**PRESSURE, "behaviors": [{"type": "effect", "command": "bar", "target": "status"}]}
+    with pytest.raises(ValidationError, match="команда или настройка"):
+        DeviceType.model_validate(bad)
+    bad = {**PRESSURE, "behaviors": [{"type": "threshold", "source": "nope", "limit": 1, "target": "status",
+                                      "value": 1}]}
+    with pytest.raises(ValidationError, match="неизвестный сигнал"):
+        DeviceType.model_validate(bad)

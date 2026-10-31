@@ -8,13 +8,17 @@
 
 Из декларации собирается класс эмулятора на ядре организаторов (тот же Signal и Device, что у
 готовых типов), поэтому линтер, прогон, Gherkin, движок и мост в Ujin работают с ним без доработок.
-Физики у такого устройства нет: команды и настройки применяются как есть, а измерения и события в
-песочнице выставляются вручную (кнопки воздействий генерируются из декларации).
+Поведение задаётся без кода тремя видами правил устройства (behaviors), они исполняются на каждом тике:
+- drift: измерение меняется само (батарея −0.5 за тик, шум ±0.3 в пределах min/max);
+- effect: команда ведёт к результату через N тиков («Открыть» = 1 → «Створка» = «открыта» через 3 тика);
+- threshold: порог рождает событие (давление > 8 → «Состояние» = «авария», ниже порога обратно «норма»).
+Измерения и события по-прежнему можно выставить вручную в песочнице.
 """
 from __future__ import annotations
 
+import random
 import re
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -63,10 +67,45 @@ class SignalSpec(BaseModel):
                       self.measure, self.min, self.max, layout)
 
 
+class Drift(BaseModel):
+    """Измерение меняется само на каждом тике: тренд step плюс случайный шум, в пределах min/max."""
+    type: Literal["drift"] = "drift"
+    signal: str
+    step: float = 0
+    noise: float = Field(0, ge=0)
+
+
+class Effect(BaseModel):
+    """Команда ведёт к результату: когда command получил value, через delay тиков target = target_value."""
+    type: Literal["effect"] = "effect"
+    command: str
+    value: Any = None                       # None: любое значение команды
+    target: str
+    target_value: Any = None                # None: то же значение, что пришло в команде
+    delay: int = Field(0, ge=0, le=600)
+
+
+class Threshold(BaseModel):
+    """Порог рождает событие: пока source op limit, target = value, иначе target = else_value."""
+    type: Literal["threshold"] = "threshold"
+    source: str
+    op: Literal["gt", "gte", "lt", "lte"] = "gt"
+    limit: float
+    target: str
+    value: Any
+    else_value: Any = None                  # None: при возврате за порог значение не трогаем
+
+
+Behavior = Annotated[Union[Drift, Effect, Threshold], Field(discriminator="type")]
+OPS = {"gt": lambda a, b: a > b, "gte": lambda a, b: a >= b, "lt": lambda a, b: a < b, "lte": lambda a, b: a <= b}
+OP_WORDS = {"gt": ">", "gte": "≥", "lt": "<", "lte": "≤"}
+
+
 class DeviceType(BaseModel):
     family: str = Field(pattern=r"^[a-z][a-z0-9_]{1,31}$")
     title: str = Field(min_length=1, max_length=60)
     signals: list[SignalSpec] = Field(min_length=1)
+    behaviors: list[Behavior] = []
 
     @field_validator("family")
     @classmethod
@@ -81,7 +120,65 @@ class DeviceType(BaseModel):
         dup = {n for n in names if names.count(n) > 1}
         if dup or "fw" in names:
             raise ValueError(f"повторяются имена сигналов: {', '.join(sorted(dup or {'fw'}))}")
+        self._check_behaviors()
         return self
+
+    def _check_behaviors(self) -> None:
+        """Поведение ссылается только на свои сигналы и только туда, где это имеет смысл."""
+        by = {s.name: s for s in self.signals}
+
+        def need(name: str, groups: tuple[str, ...], what: str) -> SignalSpec:
+            sig = by.get(name)
+            if sig is None:
+                raise ValueError(f"поведение ссылается на неизвестный сигнал «{name}»")
+            if sig.group not in groups:
+                names = ", ".join(GROUP_TITLES[g].lower() for g in groups)
+                raise ValueError(f"{what}: «{sig.title}» должен быть из групп: {names}")
+            return sig
+
+        for b in self.behaviors:
+            if isinstance(b, Drift):
+                sig = need(b.signal, ("property",), "само меняется только измерение")
+                if sig.type != "number":
+                    raise ValueError(f"«{sig.title}» не число, меняться само не может")
+            elif isinstance(b, Effect):
+                need(b.command, ("command", "setting"), "результат вызывает команда или настройка")
+                need(b.target, ("property", "event"), "результатом команды становится измерение или событие")
+            else:
+                sig = need(b.source, ("property",), "порог считается по измерению")
+                if sig.type != "number":
+                    raise ValueError(f"«{sig.title}» не число, порог к нему не применить")
+                need(b.target, ("event", "property"), "порог выставляет событие или измерение")
+
+    def describe(self) -> list[str]:
+        """Поведение простым языком: что устройство делает само."""
+        by = {s.name: s for s in self.signals}
+
+        def val(name: str, v: Any) -> str:
+            sig = by[name]
+            if sig.layout:
+                return f"«{sig.layout.get(str(v), v)}»"
+            return f"{v:g} {sig.measure}".strip() if isinstance(v, (int, float)) else str(v)
+
+        out = []
+        for b in self.behaviors:
+            if isinstance(b, Drift):
+                parts = []
+                if b.step:
+                    parts.append(f"{'растёт' if b.step > 0 else 'падает'} на {abs(b.step):g} {by[b.signal].measure} за тик".replace("  ", " "))
+                if b.noise:
+                    parts.append(f"колеблется на ±{b.noise:g}")
+                out.append(f"«{by[b.signal].title}» сама {' и '.join(parts) or 'не меняется'}.")
+            elif isinstance(b, Effect):
+                when = f"«{by[b.command].title}»" + (f" = {val(b.command, b.value)}" if b.value is not None else "")
+                then = val(b.target, b.target_value) if b.target_value is not None else "значение команды"
+                delay = f"через {b.delay} тик." if b.delay else "сразу"
+                out.append(f"Команда {when}: {delay} «{by[b.target].title}» = {then}.")
+            else:
+                tail = f", иначе {val(b.target, b.else_value)}" if b.else_value is not None else ""
+                out.append(f"Если «{by[b.source].title}» {OP_WORDS[b.op]} {val(b.source, b.limit)}: "
+                           f"«{by[b.target].title}» = {val(b.target, b.value)}{tail}.")
+        return out
 
     def faults(self) -> list[tuple[str, Any, str]]:
         """Неисправности для автодиспетчера в формате FAULTS."""
@@ -104,17 +201,48 @@ def _key(v: Any) -> Any:
 
 def build_class(spec: DeviceType) -> type[Device]:
     signals = [s.to_signal() for s in spec.signals]
+    drifts = [b for b in spec.behaviors if isinstance(b, Drift)]
+    effects = [b for b in spec.behaviors if isinstance(b, Effect)]
+    thresholds = [b for b in spec.behaviors if isinstance(b, Threshold)]
 
     def __init__(self, *args, **kwargs):
         Device.__init__(self, *args, **kwargs)
+        self._queue: list[list] = []                    # [тиков осталось, сигнал, значение]
         for sig in signals:
             self.add_signal(Signal(**{**sig.__dict__}))
 
-    def tick(self, dt: int) -> None:          # физики нет: значения меняют команды и воздействия
-        pass
+    def on_command(self, name: str, value: Any) -> None:
+        for e in effects:
+            if e.command == name and (e.value is None or _key(e.value) == _key(value)):
+                target = value if e.target_value is None else _key(e.target_value)
+                if e.delay:
+                    self._queue.append([e.delay, e.target, target])
+                else:
+                    self.set_value(e.target, target)
+
+    def tick(self, dt: int) -> None:
+        for item in list(self._queue):
+            item[0] -= dt
+            if item[0] <= 0:
+                self._queue.remove(item)
+                self.set_value(item[1], item[2])
+        for d in drifts:
+            sig = self.signals[d.signal]
+            value = float(sig.value or 0) + d.step * dt + (random.uniform(-d.noise, d.noise) if d.noise else 0)
+            if sig.minimum is not None:
+                value = max(sig.minimum, value)
+            if sig.maximum is not None:
+                value = min(sig.maximum, value)
+            self.set_value(d.signal, round(value, 2))
+        for t in thresholds:
+            current = self.signals[t.source].value
+            if isinstance(current, (int, float)) and OPS[t.op](current, t.limit):
+                self.set_value(t.target, _key(t.value))
+            elif t.else_value is not None:
+                self.set_value(t.target, _key(t.else_value))
 
     attrs: dict[str, Any] = {"model": f"custom_{spec.family}", "title": spec.title,
-                             "__init__": __init__, "tick": tick}
+                             "__init__": __init__, "tick": tick, "on_command": on_command}
     for s in spec.signals:
         if s.group in ("property", "event"):
             attrs[f"input_{s.name}"] = (lambda name: lambda self, value: self.set_value(name, _key(value)))(s.name)

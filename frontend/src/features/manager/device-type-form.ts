@@ -1,4 +1,4 @@
-import type { DeviceTypeSpec, SignalGroup, SignalSpec, SignalValueType } from '../../api'
+import type { Behavior, DeviceTypeSpec, SignalGroup, SignalSpec, SignalValueType } from '../../api'
 
 /** Строка формы: все поля текстовые, в декларацию для бэкенда они собираются при сохранении. */
 export type SignalRow = {
@@ -138,8 +138,74 @@ export function validate(title: string, rows: SignalRow[]): string {
   return ''
 }
 
-export function buildSpec(family: string, title: string, rows: SignalRow[]): DeviceTypeSpec {
+/**
+ * Правило поведения в форме. Сигналы указываются по uid строки: имена сигналов генерируются только
+ * при сохранении, а человек выбирает сигнал по названию.
+ */
+export type BehaviorRow = {
+  uid: number
+  type: Behavior['type']
+  /** drift: измерение; effect: команда; threshold: измерение-источник. */
+  source: number
+  /** effect, threshold: что выставить. */
+  target: number
+  sourceValue: string
+  targetValue: string
+  elseValue: string
+  step: string
+  noise: string
+  delay: string
+  op: 'gt' | 'gte' | 'lt' | 'lte'
+}
+
+export const BEHAVIOR_KINDS: { key: Behavior['type']; title: string; hint: string }[] = [
+  { key: 'drift', title: 'Меняется само', hint: 'батарея садится, температура колеблется' },
+  { key: 'effect', title: 'Команда ведёт к результату', hint: '«Открыть» → створка открыта через 3 тика' },
+  { key: 'threshold', title: 'Порог рождает событие', hint: 'давление выше 8 → авария' },
+]
+
+export function emptyBehavior(type: Behavior['type'], rows: SignalRow[]): BehaviorRow {
+  const pick = (groups: SignalGroup[], numeric = false) =>
+    rows.find((row) => groups.includes(row.group) && (!numeric || row.type === 'number'))?.uid ?? 0
+  const base = { uid: nextUid(), type, sourceValue: '', targetValue: '', elseValue: '', step: '', noise: '', delay: '', op: 'gt' as const }
+  if (type === 'drift') return { ...base, source: pick(['property'], true), target: 0, step: '-0.5' }
+  if (type === 'effect') return { ...base, source: pick(['command', 'setting']), target: pick(['event', 'property']), delay: '2' }
+  return { ...base, source: pick(['property'], true), target: pick(['event']) || pick(['property']) }
+}
+
+/** Значение для бэкенда: ключ списка числом, число числом, пусто как null. */
+function toValue(raw: string, row: SignalRow | undefined): number | string | null {
+  if (raw.trim() === '') return null
+  if (row && (row.type === 'number' || rowLayout(row).length)) return Number(raw)
+  return raw
+}
+
+export function behaviorFromSpec(b: Behavior, rows: SignalRow[]): BehaviorRow {
+  const uid = (name: string) => rows.find((row) => row.name === name)?.uid ?? 0
+  const str = (v: unknown) => (v == null ? '' : String(v))
+  const base = emptyBehavior(b.type, rows)
+  if (b.type === 'drift') return { ...base, source: uid(b.signal), step: str(b.step), noise: b.noise ? str(b.noise) : '' }
+  if (b.type === 'effect')
+    return { ...base, source: uid(b.command), target: uid(b.target), sourceValue: str(b.value), targetValue: str(b.target_value), delay: str(b.delay) }
+  return { ...base, source: uid(b.source), target: uid(b.target), op: b.op, sourceValue: str(b.limit), targetValue: str(b.value), elseValue: str(b.else_value) }
+}
+
+export function validateBehaviors(behaviors: BehaviorRow[], rows: SignalRow[]): string {
+  const exists = (uid: number) => rows.some((row) => row.uid === uid)
+  for (const [index, b] of behaviors.entries()) {
+    const label = `Поведение ${index + 1}`
+    if (!exists(b.source) || (b.type !== 'drift' && !exists(b.target))) return `${label}: выберите сигналы`
+    if (b.type === 'drift' && Number.isNaN(Number(b.step || 0))) return `${label}: шаг должен быть числом`
+    if (b.type === 'threshold' && (b.sourceValue.trim() === '' || Number.isNaN(Number(b.sourceValue))))
+      return `${label}: порог должен быть числом`
+    if (b.type === 'threshold' && b.targetValue.trim() === '') return `${label}: выберите, что выставить`
+  }
+  return ''
+}
+
+export function buildSpec(family: string, title: string, rows: SignalRow[], behaviors: BehaviorRow[] = []): DeviceTypeSpec {
   const used = new Set<string>(['fw'])
+  const names = new Map<number, string>()
   const signals = rows.map((row, index): SignalSpec => {
     const fixed = row.name && !used.has(row.name) ? row.name : ''
     const name = fixed || uniqueCode(translit(row.title), used, 32, `s${index + 1}`)
@@ -160,7 +226,31 @@ export function buildSpec(family: string, title: string, rows: SignalRow[]): Dev
     } else {
       spec.default = row.def
     }
+    names.set(row.uid, name)
     return spec
   })
-  return { family, title: title.trim(), signals }
+  const row = (uid: number) => rows.find((item) => item.uid === uid)
+  const name = (uid: number) => names.get(uid) ?? ''
+  const built = behaviors.map((b): Behavior => {
+    if (b.type === 'drift') return { type: 'drift', signal: name(b.source), step: Number(b.step || 0), noise: Number(b.noise || 0) }
+    if (b.type === 'effect')
+      return {
+        type: 'effect',
+        command: name(b.source),
+        value: toValue(b.sourceValue, row(b.source)),
+        target: name(b.target),
+        target_value: toValue(b.targetValue, row(b.target)),
+        delay: Number(b.delay || 0),
+      }
+    return {
+      type: 'threshold',
+      source: name(b.source),
+      op: b.op,
+      limit: Number(b.sourceValue),
+      target: name(b.target),
+      value: toValue(b.targetValue, row(b.target)) ?? 0,
+      else_value: toValue(b.elseValue, row(b.target)),
+    }
+  })
+  return { family, title: title.trim(), signals, behaviors: built }
 }
