@@ -1,5 +1,5 @@
 import { api, type Device, type SignalDecl } from '../../api'
-import { showValue } from '../../devices'
+import { showValue } from '../../shared/device-values'
 
 const GROUP_TITLES: Record<string, string> = {
   property: 'Свойства',
