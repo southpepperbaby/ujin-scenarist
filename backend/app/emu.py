@@ -1,0 +1,194 @@
+"""Обёртка над эмуляторами из пакета Ujin: реестр устройств, цикл тиков, события.
+
+Код эмуляторов (`backend/emulators`) не трогаем: это эталон организаторов. Здесь только
+управление экземплярами, снятие диффа сигналов после каждого шага и публикация в шину.
+"""
+from __future__ import annotations
+
+import asyncio
+import itertools
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable
+
+EMU_DIR = Path(__file__).resolve().parent.parent / "emulators"
+if str(EMU_DIR) not in sys.path:
+    sys.path.insert(0, str(EMU_DIR))
+
+from core import Device  # noqa: E402
+from devices import REGISTRY  # noqa: E402
+
+from .bus import EventBus  # noqa: E402
+
+# Ручки физики: чем песочница может подтолкнуть датчик снаружи (имя входа -> метод устройства).
+INPUTS: dict[str, dict[str, str]] = {
+    "leak": {"wet": "set_wet"},
+    "fire": {"smoke": "set_smoke"},
+    "barrier": {"obstacle": "set_obstacle"},
+    "thermostat": {"fault": "set_fault"},
+}
+
+
+def family_info(family: str) -> dict:
+    cls = REGISTRY[family]
+    probe = cls(serial="0", logger=lambda _m: None)
+    return {
+        "family": family,
+        "title": cls.title,
+        "model": cls.model,
+        "inputs": sorted(INPUTS.get(family, {})),
+        "declaration": probe.declaration(),
+    }
+
+
+@dataclass
+class Managed:
+    id: str
+    family: str
+    title: str
+    device: Device
+    room: str = ""
+    scope: str = "apartment"          # apartment | building
+    ujin: dict | None = None          # привязка к стенду: sn / ext / model, если есть
+
+    def state(self) -> dict[str, Any]:
+        return {name: sig.value for name, sig in self.device.signals.items()}
+
+    def to_dict(self) -> dict:
+        signals = []
+        for sig in self.device.signals.values():
+            row = sig.as_declaration()
+            row["value"] = sig.value
+            signals.append(row)
+        return {
+            "id": self.id,
+            "family": self.family,
+            "title": self.title,
+            "model": self.device.model,
+            "room": self.room,
+            "scope": self.scope,
+            "ujin": {"sn": self.ujin["sn"], "ext": self.ujin["ext"]} if self.ujin else None,
+            "inputs": sorted(INPUTS.get(self.family, {})),
+            "signals": signals,
+        }
+
+
+class DeviceRegistry:
+    def __init__(self, bus: EventBus, ujin_devices: list[dict] | None = None):
+        self.bus = bus
+        self.devices: dict[str, Managed] = {}
+        self._seq = itertools.count(1)
+        self._ujin_pool = list(ujin_devices or [])
+        self.tick_seconds = 1.0
+        self.speed = 1.0
+        self.running = True
+        self.tick_count = 0
+
+    # ---------- жизненный цикл устройств ----------
+
+    def create(self, family: str, title: str | None = None, room: str = "",
+               scope: str = "apartment", device_id: str | None = None, **kwargs) -> Managed:
+        if family not in REGISTRY:
+            raise KeyError(f"unknown family: {family}")
+        n = next(self._seq)
+        device_id = device_id or f"{family}-{n}"
+        if device_id in self.devices:
+            raise ValueError(f"device exists: {device_id}")
+        cls = REGISTRY[family]
+        binding = self._take_binding(family)
+        serial = binding["sn"] if binding else str(1000 + n)
+        logger = lambda msg, _id=device_id: self.bus.emit("log", _id, message=str(msg))  # noqa: E731
+        device = cls(serial=serial, client=None, logger=logger, **kwargs)
+        managed = Managed(id=device_id, family=family, title=title or cls.title,
+                          device=device, room=room, scope=scope, ujin=binding)
+        self.devices[device_id] = managed
+        self.bus.emit("device", device_id, action="created", device=managed.to_dict())
+        return managed
+
+    def remove(self, device_id: str) -> None:
+        managed = self.devices.pop(device_id)
+        if managed.ujin:
+            self._ujin_pool.append(managed.ujin)
+        self.bus.emit("device", device_id, action="removed")
+
+    def get(self, device_id: str) -> Managed:
+        return self.devices[device_id]
+
+    def _take_binding(self, family: str) -> dict | None:
+        for i, row in enumerate(self._ujin_pool):
+            if row.get("family") == family:
+                return self._ujin_pool.pop(i)
+        return None
+
+    # ---------- воздействия ----------
+
+    def command(self, device_id: str, signal: str, value: Any) -> dict:
+        """Команда платформы или правила: только управляемые сигналы (rw / w)."""
+        managed = self.get(device_id)
+        sig = managed.device.signals.get(signal)
+        if sig is None:
+            raise KeyError(f"unknown signal: {signal}")
+        if not sig.writable:
+            raise PermissionError(f"signal is read-only: {signal}")
+        payload = {"recv": [{"command": "management", "id": managed.device.serial, signal: value}]}
+        return self._apply(managed, lambda: managed.device.handle_recv(payload), source="command")
+
+    def inject(self, device_id: str, name: str, value: Any) -> dict:
+        """Воздействие физического мира: намочить датчик, задымить, положить предмет под стрелу."""
+        managed = self.get(device_id)
+        method = INPUTS.get(managed.family, {}).get(name)
+        if method is None:
+            raise KeyError(f"no input '{name}' for family {managed.family}")
+        fn = getattr(managed.device, method)
+        self.bus.emit("log", device_id, message=f"[мир] {name}={value}")
+        return self._apply(managed, lambda: fn(_coerce_input(value)), source="inject")
+
+    def set_signal(self, device_id: str, signal: str, value: Any) -> dict:
+        """Прямое выставление любого сигнала (песочница). Физика может перетереть на следующем тике."""
+        managed = self.get(device_id)
+        if signal not in managed.device.signals:
+            raise KeyError(f"unknown signal: {signal}")
+        return self._apply(managed, lambda: managed.device.emit_event(signal, value), source="manual")
+
+    # ---------- симуляция ----------
+
+    def step_all(self, dt: int = 1) -> None:
+        self.tick_count += 1
+        for managed in list(self.devices.values()):
+            self._apply(managed, lambda m=managed: m.device.step(dt), source="tick")
+
+    async def run(self) -> None:
+        while True:
+            if self.running:
+                self.step_all(1)
+            await asyncio.sleep(self.tick_seconds / max(self.speed, 0.01))
+
+    def _apply(self, managed: Managed, fn: Callable[[], None], source: str) -> dict:
+        before = managed.state()
+        fn()
+        after = managed.state()
+        changed = {k: v for k, v in after.items() if before.get(k) != v}
+        for name, value in changed.items():
+            self.bus.emit("signal", managed.id, signal=name, value=value,
+                          prev=before.get(name), source=source,
+                          title=managed.device.signals[name].title)
+        return changed
+
+
+def _coerce_input(value: Any) -> Any:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        low = value.strip().lower()
+        if low in ("1", "true", "yes", "on"):
+            return True
+        if low in ("0", "false", "no", "off"):
+            return False
+        try:
+            return float(value) if "." in value else int(value)
+        except ValueError:
+            return value
+    return value
