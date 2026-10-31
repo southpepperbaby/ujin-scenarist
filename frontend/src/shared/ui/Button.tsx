@@ -11,6 +11,7 @@ type ButtonProps = {
   icon?: IconName
   full?: boolean
   className?: string
+  disabled?: boolean
 }
 
 const VARIANTS: Record<ButtonVariant, string> = {
@@ -20,12 +21,13 @@ const VARIANTS: Record<ButtonVariant, string> = {
   danger: 'bg-sev-crit-soft text-sev-crit border border-sev-crit/35 hover:brightness-125',
 }
 
-export function Button({ children, onClick, variant = 'secondary', icon, full, className = '' }: ButtonProps) {
+export function Button({ children, onClick, variant = 'secondary', icon, full, className = '', disabled }: ButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+      disabled={disabled}
+      className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition disabled:pointer-events-none disabled:opacity-60 ${
         VARIANTS[variant]
       } ${full ? 'w-full' : ''} ${className}`}
     >
