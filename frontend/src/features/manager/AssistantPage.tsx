@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-import { api, type Compiled, type RunRecord, type SimulateReport } from '../../api'
+import { api, type RunRecord, type SimulateReport } from '../../api'
 import { useStore } from '../../store'
 import {
   ACTION_STATUS_COLOR,
@@ -8,6 +8,7 @@ import {
   describeAction,
 } from '../../shared/rule/describe-action'
 import { ConfirmCard } from '../../shared/rule/ConfirmCard'
+import { useRuleChat } from '../../shared/rule/use-rule-chat'
 import { Bubble } from '../../shared/ui/Bubble'
 import { Button } from '../../shared/ui/Button'
 import { Glass } from '../../shared/ui/Glass'
@@ -58,78 +59,41 @@ function Steps({ actions }: { actions: RunRecord['actions'] }) {
  * правило на эмуляторах до подтверждения.
  */
 export function AssistantPage() {
-  const reload = useStore((state) => state.reloadRules)
-  const [text, setText] = useState('')
-  const [sent, setSent] = useState<string | null>(null)
-  const [previous, setPrevious] = useState<string | undefined>()
-  const [result, setResult] = useState<Compiled | null>(null)
+  const { text, setText, asked, previous, result, error, busy, send, confirm, refine, reset, withBusy } =
+    useRuleChat('uk')
   const [run, setRun] = useState<RunRecord | null>(null)
   const [report, setReport] = useState<SimulateReport | null>(null)
   const [saved, setSaved] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
 
-  const reset = () => {
-    setResult(null)
+  const clearOutcome = () => {
     setRun(null)
     setReport(null)
     setSaved(null)
-    setError(null)
   }
 
   const ask = async (query: string) => {
-    if (query.trim().length === 0) return
-    setBusy(true)
-    setSent(previous ? `${previous}\nУточнение: ${query}` : query)
-    setText('')
-    reset()
-    try {
-      const out = await api.compile(query, 'uk', previous)
-      setResult(out)
-      setPrevious(out.rule ? (out.text ?? query) : undefined)
-    } catch (cause) {
-      setError(`Не получилось разобрать: ${(cause as Error).message}`)
-    } finally {
-      setBusy(false)
-    }
+    clearOutcome()
+    await send(query)
   }
 
-  const confirm = async () => {
-    const rule = result?.rule
-    if (!rule) return
-    setBusy(true)
-    try {
-      const res = await api.confirm({ ...rule, owner: 'uk' }, 'uk')
-      setResult(null)
-      setPrevious(undefined)
-      if (res.kind === 'command') setRun(res.run ?? null)
-      else {
-        await reload()
-        setSaved(res.lint?.ok ? `Правило «${res.rule?.title}» добавлено и работает.`
-          : `Правило «${res.rule?.title}» сохранено черновиком: ${res.lint?.issues.find((i) => i.level === 'error')?.message ?? 'есть ошибки'}`)
-      }
-    } catch (cause) {
-      setError(`Не удалось: ${(cause as Error).message}`)
-    } finally {
-      setBusy(false)
-    }
+  const onConfirm = async () => {
+    const res = await confirm()
+    if (!res) return
+    if (res.kind === 'command') setRun(res.run ?? null)
+    else
+      setSaved(res.lint?.ok ? `Правило «${res.rule?.title}» добавлено и работает.`
+        : `Правило «${res.rule?.title}» сохранено черновиком: ${res.lint?.issues.find((i) => i.level === 'error')?.message ?? 'есть ошибки'}`)
   }
 
   const simulate = async () => {
-    if (!result?.rule) return
-    setBusy(true)
-    try {
-      setReport(await api.simulate(result.rule))
-    } catch (cause) {
-      setError(`Прогон не удался: ${(cause as Error).message}`)
-    } finally {
-      setBusy(false)
-    }
+    const rule = result?.rule
+    if (!rule) return
+    const out = await withBusy(() => api.simulate(rule), 'Прогон не удался')
+    if (out) setReport(out)
   }
 
-  const refine = () => {
-    // Прошлая просьба остаётся, УК дописывает только уточнение.
-    setResult(null)
+  const onRefine = () => {
+    refine()
     setReport(null)
   }
 
@@ -143,7 +107,7 @@ export function AssistantPage() {
           это, соберу по схеме и проверю линтером до включения.
         </Bubble>
 
-        {!sent && (
+        {asked.length === 0 && (
           <div className="grid gap-2 pt-1 sm:grid-cols-2">
             {PROMPTS.map((prompt, index) => (
               <button
@@ -160,7 +124,11 @@ export function AssistantPage() {
           </div>
         )}
 
-        {sent && <Bubble mine>{sent}</Bubble>}
+        {asked.map((item, index) => (
+          <Bubble key={`${index}-${item}`} mine>
+            {item}
+          </Bubble>
+        ))}
 
         {busy && (
           <div className="glass inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-ink-dim">
@@ -184,8 +152,8 @@ export function AssistantPage() {
               <ConfirmCard
                 result={result}
                 busy={busy}
-                onConfirm={() => void confirm()}
-                onRefine={refine}
+                onConfirm={() => void onConfirm()}
+                onRefine={onRefine}
                 extra={
                   intent === 'rule' && (
                     <Button variant="secondary" icon="play" onClick={() => void simulate()}>
@@ -225,7 +193,7 @@ export function AssistantPage() {
         {previous && !result && !busy && (
           <p className="text-[12px] text-ink-mute">
             Напишите, что уточнить, или{' '}
-            <button type="button" onClick={() => { setPrevious(undefined); setSent(null); reset() }} className="underline hover:text-ink">
+            <button type="button" onClick={() => { reset(); clearOutcome() }} className="underline hover:text-ink">
               начните заново
             </button>
             .
@@ -256,6 +224,7 @@ export function AssistantPage() {
         <button
           type="button"
           onClick={() => void ask(text)}
+          disabled={busy}
           className="press flex size-12 shrink-0 items-center justify-center rounded-2xl bg-accent text-accent-ink transition hover:brightness-110"
           aria-label="Спросить ассистента"
         >

@@ -27,6 +27,8 @@ export function keySignal(d: Device) {
 }
 
 export function isAlarm(d: Device) {
+  if (d.alarms) return d.alarms.length > 0
+  // Старый бэкенд без поля alarms: известные семейства по именам сигналов.
   const get = (n: string) => d.signals.find((s) => s.name === n)?.value
   return (d.family === 'leak' && get('leak') === 1) || (d.family === 'fire' && get('alarm') === 1) || (d.family === 'valve' && get('jammed') === 1)
 }

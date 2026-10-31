@@ -1,88 +1,31 @@
 import { useState } from 'react'
 
 import { navigate } from '../../app/routing'
-import { api, type Compiled } from '../../api'
-import { useStore } from '../../store'
 import { ConfirmCard } from '../../shared/rule/ConfirmCard'
+import { useRuleChat } from '../../shared/rule/use-rule-chat'
+import { Bubble } from '../../shared/ui/Bubble'
 import { Icon } from '../../shared/ui/Icon'
 import { TypingDots } from '../../shared/ui/TypingDots'
-
-function Bubble({ children, mine = false }: { children: React.ReactNode; mine?: boolean }) {
-  return (
-    <div
-      className={`rise max-w-[88%] rounded-2xl px-4 py-3 text-[14px] leading-snug whitespace-pre-line ${
-        mine ? 'ml-auto bg-accent text-accent-ink' : 'glass text-ink'
-      }`}
-    >
-      {children}
-    </div>
-  )
-}
 
 /**
  * Главный вход в сценарии: разговор, а не форма. Правило собирает LLM, проверяет линтер,
  * житель видит пересказ из JSON и отвечает «да, подтвердить» или «нет, дополнить промпт».
  */
 export function ScenarioChat() {
-  const reload = useStore((state) => state.reloadRules)
-  const [text, setText] = useState('')
-  const [asked, setAsked] = useState<string[]>([])
-  const [previous, setPrevious] = useState<string | undefined>()
-  const [result, setResult] = useState<Compiled | null>(null)
+  const { text, setText, asked, previous, result, error, busy, send, confirm, refine, reset } = useRuleChat('resident')
   const [done, setDone] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
 
   const onCompile = async () => {
-    const query = text.trim()
-    if (query.length === 0) return
-    setBusy(true)
-    setAsked((items) => [...items, query])
-    setText('')
-    setError(null)
     setDone(null)
-    setResult(null)
-    try {
-      const out = await api.compile(query, 'resident', previous)
-      setResult(out)
-      setPrevious(out.text ?? (previous ? `${previous}\nУточнение: ${query}` : query))
-    } catch (cause) {
-      setError(`Не получилось разобрать: ${(cause as Error).message}`)
-    } finally {
-      setBusy(false)
-    }
+    await send()
   }
 
   const onConfirm = async () => {
-    if (!result?.rule) return
-    setBusy(true)
-    try {
-      const res = await api.confirm(result.rule, 'resident')
-      await reload()
-      setResult(null)
-      setPrevious(undefined)
-      setAsked([])
-      if (res.kind === 'rule' && res.rule) navigate(`/resident/scenarios/${res.rule.id}`)
-      else setDone('Готово, выполнено.')
-    } catch (cause) {
-      setError(`Не удалось: ${(cause as Error).message}`)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const onRefine = () => {
-    // Прошлая просьба остаётся: житель дописывает только то, что понято не так.
-    setResult(null)
-    setError(null)
-  }
-
-  const reset = () => {
-    setResult(null)
-    setPrevious(undefined)
-    setAsked([])
-    setError(null)
-    setDone(null)
+    const res = await confirm()
+    if (!res) return
+    reset()
+    if (res.kind === 'rule' && res.rule) navigate(`/resident/scenarios/${res.rule.id}`)
+    else setDone('Готово, выполнено.')
   }
 
   return (
@@ -101,12 +44,12 @@ export function ScenarioChat() {
 
       {result?.answer && <Bubble>{result.answer}</Bubble>}
       {result?.error && <Bubble>{`Не получилось собрать правило: ${result.error}. Уточните просьбу.`}</Bubble>}
-      {result?.rule && <ConfirmCard result={result} busy={busy} onConfirm={() => void onConfirm()} onRefine={onRefine} />}
+      {result?.rule && <ConfirmCard result={result} busy={busy} onConfirm={() => void onConfirm()} onRefine={refine} />}
 
       {previous && !result && !busy && (
         <p className="text-[12px] text-ink-mute">
           Напишите, что уточнить, или{' '}
-          <button type="button" onClick={reset} className="underline hover:text-ink">
+          <button type="button" onClick={() => { reset(); setDone(null) }} className="underline hover:text-ink">
             начните заново
           </button>
           .
@@ -132,12 +75,13 @@ export function ScenarioChat() {
             }
           }}
           rows={2}
-          placeholder={previous ? 'Что уточнить? Например: только ночью' : 'Опишите правило словами — соберу и проверю'}
+          placeholder={previous ? 'Что уточнить? Например: только ночью' : 'Опишите правило словами, я соберу и проверю'}
           className="scroll-slim glass flex-1 resize-none rounded-2xl px-3.5 py-2.5 text-[14px] text-ink outline-none placeholder:text-ink-mute focus:border-accent/50"
         />
         <button
           type="button"
           onClick={() => void onCompile()}
+          disabled={busy}
           className="press flex size-11 shrink-0 items-center justify-center rounded-2xl bg-accent text-accent-ink transition hover:brightness-110"
           aria-label="Разобрать правило"
         >
