@@ -16,13 +16,6 @@ import { Glass } from '../../shared/ui/Glass'
 import { Icon } from '../../shared/ui/Icon'
 import { TypingDots } from '../../shared/ui/TypingDots'
 
-const PROMPTS = [
-  { icon: 'activity' as const, text: 'Что сейчас в доме?' },
-  { icon: 'play' as const, text: 'Если ночью открыт шлагбаум, сообщи консьержу' },
-  { icon: 'barrier' as const, text: 'Открой шлагбаум во дворе' },
-  { icon: 'bolt' as const, text: 'Если лифт встал аварийно, сразу заявку в ЛифтМонтаж' },
-]
-
 const INTENT_TITLE: Record<string, string> = {
   question: 'Вопрос о доме',
   command: 'Разовая команда',
@@ -101,28 +94,6 @@ export function AssistantPage() {
   return (
     <div className="mx-auto flex min-h-full max-w-3xl flex-col px-7 py-6">
       <div className="flex-1 space-y-3 pb-4">
-        <Bubble>
-          Спросите о доме, отдайте разовую команду или опишите правило уровня дома. Я определю, что
-          это, соберу по схеме и проверю линтером до включения.
-        </Bubble>
-
-        {asked.length === 0 && (
-          <div className="grid gap-2 pt-1 sm:grid-cols-2">
-            {PROMPTS.map((prompt, index) => (
-              <button
-                key={prompt.text}
-                type="button"
-                onClick={() => void ask(prompt.text)}
-                style={{ '--i': index } as React.CSSProperties}
-                className="rise press glass sheen flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-[13px] text-ink-dim transition hover:text-ink"
-              >
-                <Icon name={prompt.icon} size={18} className="shrink-0 text-accent" />
-                {prompt.text}
-              </button>
-            ))}
-          </div>
-        )}
-
         {asked.map((item, index) => (
           <Bubble key={`${index}-${item}`} mine>
             {item}
@@ -215,7 +186,7 @@ export function AssistantPage() {
             }
           }}
           rows={2}
-          placeholder={previous ? 'Что уточнить? Например: только ночью' : 'Например: если лифт встал аварийно, заявку в ЛифтМонтаж'}
+          placeholder={previous ? 'Что уточнить? Например: только ночью' : 'Спросите о доме, дайте команду или опишите правило'}
           className="scroll-slim glass flex-1 resize-none rounded-2xl px-4 py-3 text-[14px] text-ink outline-none placeholder:text-ink-mute focus:border-accent/50"
         />
         <button

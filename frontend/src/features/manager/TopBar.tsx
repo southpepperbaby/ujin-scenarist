@@ -11,7 +11,7 @@ export function TopBar({ title, subtitle, demo }: TopBarProps) {
     <header className="glass flex items-center gap-4 rounded-none border-x-0 border-t-0 px-7 py-4">
       <div className="flex-1">
         <h1 className="text-lg">{title}</h1>
-        <p className="text-[13px] text-ink-mute">{subtitle}</p>
+        {subtitle && <p className="text-[13px] text-ink-mute">{subtitle}</p>}
       </div>
 
       {demo && (
