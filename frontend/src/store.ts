@@ -15,6 +15,10 @@ type State = {
   setError: (e: string | null) => void
 }
 
+// Номер последнего запущенного запроса устройств: ответ более старого запроса не должен затереть свежий.
+let devicesSeq = 0
+let devicesTimer: ReturnType<typeof setTimeout> | undefined
+
 export const useStore = create<State>((set, get) => ({
   devices: [],
   families: [],
@@ -24,17 +28,40 @@ export const useStore = create<State>((set, get) => ({
   error: null,
 
   load: async () => {
-    const [devices, families, rules, events, notifications] = await Promise.all([
+    const seq = ++devicesSeq
+    const results = await Promise.allSettled([
       api.devices(),
       api.families(),
       api.rules(),
       api.events(150),
       api.notifications(),
-    ])
-    set({ devices, families, rules, events, notifications })
+    ] as const)
+    // Бэкенд недоступен целиком: пусть вызывающий решает (демо-режим при старте).
+    const failed = results.filter((r) => r.status === 'rejected')
+    if (failed.length === results.length) throw (failed[0] as PromiseRejectedResult).reason
+    // Один упавший запрос не роняет остальное: его срез остаётся прежним, человек видит предупреждение.
+    const [devices, families, rules, events, notifications] = results
+    const s = get()
+    const ok = <T,>(r: PromiseSettledResult<T>, prev: T) => (r.status === 'fulfilled' ? r.value : prev)
+    set({
+      // Устройства применяем только если после этого не стартовал более новый запрос.
+      devices: seq === devicesSeq ? ok(devices, s.devices) : s.devices,
+      families: ok(families, s.families),
+      rules: ok(rules, s.rules),
+      events: ok(events, s.events),
+      notifications: ok(notifications, s.notifications),
+    })
+    if (failed.length > 0) {
+      get().setError(`Часть данных не загрузилась (${failed.length} из ${results.length}), остальное работает`)
+      setTimeout(() => get().setError(null), 4000)
+    }
   },
 
-  reloadDevices: async () => set({ devices: await api.devices() }),
+  reloadDevices: async () => {
+    const seq = ++devicesSeq
+    const devices = await api.devices()
+    if (seq === devicesSeq) set({ devices })
+  },
   reloadRules: async () => set({ rules: await api.rules() }),
   setError: (error) => set({ error }),
 
@@ -50,11 +77,15 @@ export const useStore = create<State>((set, get) => ({
           ),
         }))
       }
-      if (e.kind === 'device') get().reloadDevices()
+      if (e.kind === 'device') {
+        // Всплеск device-событий схлопываем в один запрос.
+        clearTimeout(devicesTimer)
+        devicesTimer = setTimeout(() => void guard(get().reloadDevices()), 150)
+      }
       if (e.kind === 'notify') {
         set((s) => ({ notifications: [...s.notifications.slice(-199), e as unknown as Notification] }))
       }
-    }),
+    }, () => void guard(get().load())),
 }))
 
 export function deviceById(devices: Device[], id: string) {

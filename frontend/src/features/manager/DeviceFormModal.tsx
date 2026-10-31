@@ -43,6 +43,7 @@ export function DeviceFormModal({ device, families, onClose, onNewType }: Device
   }
 
   const run = async (action: () => Promise<unknown>) => {
+    if (busy) return
     setBusy(true)
     setError('')
     try {
@@ -68,7 +69,7 @@ export function DeviceFormModal({ device, families, onClose, onNewType }: Device
       onClose={onClose}
       footer={
         <>
-          <Button variant="primary" onClick={() => void save()}>
+          <Button variant="primary" onClick={() => void save()} disabled={busy}>
             {editing ? 'Сохранить' : 'Добавить'}
           </Button>
           <Button variant="ghost" onClick={onClose}>

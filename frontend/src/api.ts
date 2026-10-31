@@ -26,6 +26,7 @@ export type Device = {
   inputs: string[]
   signals: SignalDecl[]
   events: DeviceEvent[]
+  alarms?: string[] // активные неисправности словами, есть и у своих типов
 }
 
 export type Family = {
@@ -297,7 +298,6 @@ export const api = {
   updateRule: (r: Rule) => json<Rule>(`/api/rules/${r.id}`, { method: 'PUT', ...body(r) }),
   deleteRule: (id: string) => json(`/api/rules/${id}`, { method: 'DELETE' }),
   runRule: (id: string) => json(`/api/rules/${id}/run`, { method: 'POST' }),
-  exportRule: (id: string) => json<Record<string, unknown>>(`/api/rules/${id}/ujin`),
 
   compile: (text: string, role: Role, previous?: string) =>
     json<Compiled>('/api/nl/compile', { method: 'POST', ...body({ text, role, previous }) }),
@@ -306,7 +306,6 @@ export const api = {
   notifications: (target?: string) =>
     json<Notification[]>(`/api/notifications?limit=100${target ? `&target=${target}` : ''}`),
   events: (limit = 100) => json<BusEvent[]>(`/api/events?limit=${limit}`),
-  sim: (patch: { running?: boolean; speed?: number }) => json('/api/sim', { method: 'POST', ...body(patch) }),
 
   incidents: (role: Role, limit = 50) => json<Incident[]>(`/api/incidents?limit=${limit}&role=${role}`),
   tickets: (role: Role) => json<Ticket[]>(`/api/tickets?role=${role}`),
@@ -315,23 +314,35 @@ export const api = {
   contractors: () => json<Contractor[]>('/api/contractors'),
   dictionaries: () => json<Dictionaries>('/api/dictionaries'),
 
-  lint: (rule: Rule) => json<Lint>('/api/lint', { method: 'POST', ...body(rule) }),
   simulate: (rule: Rule, ticks = 15) =>
     json<SimulateReport>('/api/simulate', { method: 'POST', ...body({ rule, ticks }) }),
   policy: () => json<Policy>('/api/policy'),
   setPolicy: (policy: Policy) => json<Policy>('/api/policy', { method: 'PUT', ...body(policy) }),
-  gherkin: (rule: Rule) => json<GherkinReport>('/api/gherkin/run', { method: 'POST', ...body({ rule }) }),
   explainRule: (id: string) => json<{ text: string }>(`/api/rules/${id}/explain`),
-  executeNow: (rule: Rule) => json<RunRecord>('/api/nl/execute', { method: 'POST', ...body(rule) }),
+  gherkin: (rule: Rule) => json<GherkinReport>('/api/gherkin/run', { method: 'POST', ...body({ rule }) }),
 }
 
-export function openEvents(onEvent: (e: BusEvent) => void): () => void {
+/** onReopen вызывается при каждом переподключении, кроме первого: данные за время обрыва надо подтянуть заново. */
+export function openEvents(onEvent: (e: BusEvent) => void, onReopen?: () => void): () => void {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   let ws: WebSocket | null = null
   let closed = false
+  let opened = false
   const connect = () => {
     ws = new WebSocket(`${proto}://${location.host}/ws`)
-    ws.onmessage = (m) => onEvent(JSON.parse(m.data))
+    ws.onopen = () => {
+      if (opened) onReopen?.()
+      opened = true
+    }
+    ws.onmessage = (m) => {
+      let event: BusEvent
+      try {
+        event = JSON.parse(m.data)
+      } catch {
+        return // битый кадр пропускаем
+      }
+      onEvent(event)
+    }
     ws.onclose = () => {
       if (!closed) setTimeout(connect, 1000)
     }
