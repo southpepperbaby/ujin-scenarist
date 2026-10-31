@@ -22,6 +22,9 @@ from devices import REGISTRY  # noqa: E402
 from .bus import EventBus  # noqa: E402
 from .dictionaries import FAULTS  # noqa: E402
 
+# Три общих реестра по семейству устройства: REGISTRY (класс эмулятора, от организаторов), INPUTS (ниже)
+# и dictionaries.FAULTS. Конструктор своих типов (device_types.DeviceTypes) дописывает и удаляет записи
+# во всех трёх сразу, поэтому диспетчер, песочница и прогон видят свои типы без отдельной регистрации.
 # Ручки физики: чем песочница может подтолкнуть датчик снаружи (имя входа -> метод устройства).
 INPUTS: dict[str, dict[str, str]] = {
     "leak": {"wet": "set_wet"},

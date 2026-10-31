@@ -133,8 +133,6 @@ def _check_logic(rule: Rule, registry: DeviceRegistry) -> list[dict]:
         if "dispatch" not in kinds:
             out.append(issue(INFO, "no_dispatch",
                              "Можно добавить заявку подрядчику: автодиспетчер сам выберет, кого вызвать."))
-    if not rule.actions:
-        out.append(issue(ERROR, "no_actions", "У правила нет действий."))
     return out
 
 

@@ -106,7 +106,7 @@ class Rule(BaseModel):
     owner: Literal["resident", "uk"] = "resident"
     priority: int = 50
     enabled: bool = True
-    status: Literal["draft", "checked", "tested", "active"] = "draft"
+    status: Literal["draft", "tested", "active"] = "draft"   # enabled: включено ли; status: как далеко прошло проверку
     cooldown_s: float = 3
     trigger: Trigger
     conditions: list[AnyCondition] = []
@@ -136,10 +136,11 @@ class RuleStore:
         rows = storage.all("rules") if storage else []
         if not rows and legacy_path and legacy_path.exists():
             rows = json.loads(legacy_path.read_text(encoding="utf-8"))
+        migrate = bool(rows) and storage is not None and not storage.count("rules")
         for raw in rows:
-            rule = Rule.model_validate(raw)
+            rule = Rule.model_validate({**raw, "status": "draft"} if raw.get("status") == "checked" else raw)
             self.rules[rule.id] = rule
-            if storage:
+            if migrate:                          # rules.json переносится в базу один раз
                 storage.put("rules", rule.id, rule.model_dump(mode="json"))
 
     def all(self) -> list[Rule]:

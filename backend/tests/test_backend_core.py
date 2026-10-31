@@ -431,3 +431,11 @@ async def test_uk_can_enable_auto_send_for_building_minor(monkeypatch):
     tickets.tickets.clear()
     third = await disp.handle("barrier", "alarm", "Авария шлагбаума")
     assert third["decision"] == "draft"
+
+
+def test_slow_subscriber_is_asked_to_reconnect():
+    bus = EventBus()
+    q = bus.subscribe(maxsize=2)
+    for _ in range(5):
+        bus.emit("tick")
+    assert q.qsize() == 1 and q.get_nowait() is None
