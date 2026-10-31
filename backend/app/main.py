@@ -19,6 +19,7 @@ from .dispatcher import FAULTS, Dispatcher, Policy
 from .emu import REGISTRY, DeviceRegistry, family_info
 from .engine import Engine
 from .linter import lint, summary
+from .rule_check import check_rule
 from .rules import NOW, Rule, RuleStore
 from .seed import SEED_DEVICES, seed_rules
 from .simulate import simulate
@@ -330,18 +331,22 @@ async def nl_compile(body: NLRequest):
 async def nl_confirm(body: NLConfirm):
     """«Да, подтвердить» на карточке пересказа. Одинаково для жителя и УК.
 
-    Разовая команда выполняется сразу. Правило сохраняется и включается, если линтер не нашёл ошибок;
-    с ошибками остаётся черновиком, и человек видит почему.
+    Разовая команда выполняется сразу. Правило сначала проходит линтер и прогон на копии дома
+    (rule_check), включается только если прошло оба; иначе остаётся черновиком, и человек видит почему.
     """
     rule = body.rule
     explanation = nl.explain(rule, registry)
     if rule.trigger.device_id == NOW:
         return {"kind": "command", "explanation": explanation, "run": await nl.execute_now(rule, engine)}
-    report = summary(lint(rule, store.all(), registry))
-    rule.enabled = report["ok"]
-    rule.status = "active" if report["ok"] else "draft"
+    others = [r for r in store.all() if r.id != rule.id]
+    report = summary(lint(rule, others, registry))
+    check = await check_rule(rule, registry, others) if report["ok"] else None
+    ok = report["ok"] and bool(check and check["passed"])
+    rule.enabled = ok
+    rule.status = "active" if ok else "draft"
     store.put(rule)
-    return {"kind": "rule", "explanation": explanation, "rule": rule.model_dump(mode="json"), "lint": report}
+    return {"kind": "rule", "explanation": explanation, "rule": rule.model_dump(mode="json"), "lint": report,
+            "check": check}
 
 
 @app.post("/api/nl/execute")
