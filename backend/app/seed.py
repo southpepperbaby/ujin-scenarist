@@ -1,7 +1,7 @@
 """Демо-дом: устройства квартиры и общедомовое, эталонные правила из ТЗ."""
 from __future__ import annotations
 
-from .rules import Notify, Rule, SetSignal, Trigger
+from .rules import Notify, Rule, SetSignal, TimeCondition, Trigger
 
 # id, семейство, название, помещение, уровень, параметры эмулятора
 SEED_DEVICES = [
@@ -37,6 +37,7 @@ def seed_rules() -> list[Rule]:
             title="Протечка ночью: включить свет в коридоре",
             owner="resident", priority=40, status="active",
             trigger=Trigger(device_id="kitchen-leak", signal="leak", op="eq", value=1),
+            conditions=[TimeCondition(start="22:00", end="07:00")],
             actions=[SetSignal(device_id="hall-light", signal="lamp", value=1)],
         ),
         Rule(
