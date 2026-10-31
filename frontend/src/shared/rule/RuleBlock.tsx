@@ -1,4 +1,4 @@
-import { Icon, type IconName } from '../../shared/ui/Icon'
+import { Icon, type IconName } from '../ui/Icon'
 
 type RuleBlockProps = {
   kind: 'when' | 'if' | 'then'

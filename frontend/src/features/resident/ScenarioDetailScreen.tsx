@@ -6,10 +6,10 @@ import { RULE_STATUS } from '../../shared/ticket-status'
 import { Button } from '../../shared/ui/Button'
 import { Icon } from '../../shared/ui/Icon'
 import { StatusPill } from '../../shared/ui/StatusPill'
-import { RuleBlock } from './RuleBlock'
+import { RuleBlock } from '../../shared/rule/RuleBlock'
 import { RunReport } from './RunReport'
 import { ScreenHeader } from './ScreenHeader'
-import { ruleLines } from './rule-lines'
+import { ruleLines } from '../../shared/rule/rule-lines'
 
 export function ScenarioDetailScreen({ rule }: { rule: Rule }) {
   const devices = useStore((state) => state.devices)
