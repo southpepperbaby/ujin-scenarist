@@ -10,7 +10,7 @@ import json
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import ai, config, gherkin, nl
 from .bus import EventBus
@@ -26,7 +26,7 @@ from . import mock_contractor
 from .mock_contractor import router as mock_contractor_router
 from .persistence import Persistence
 from .storage import Storage
-from .tickets import CATEGORY_TITLES, STATUS_TITLES, Contractor, TicketService, verify, visible_to
+from .tickets import CATEGORY_TITLES, STATUS_TITLES, Category, Contractor, Ticket, TicketService, verify, visible_to
 from .ujin_bridge import UjinBridge
 
 bus = EventBus()
@@ -396,6 +396,29 @@ def incidents(limit: int = 50, role: str | None = None):
 def list_tickets(role: str | None = None):
     rows = sorted(tickets.tickets.values(), key=lambda t: t.created)
     return [t.model_dump(mode="json") for t in rows if role is None or visible_to(t, role)]
+
+
+class TicketCreate(BaseModel):
+    """Ручная заявка из кабинета УК: общедомовая, подрядчик по категории, как у автодиспетчера."""
+    category: Category
+    level: int = Field(1, ge=0, le=3)
+    title: str = Field(min_length=1)
+    description: str = ""
+    device_id: str | None = None
+    send: bool = True                    # сразу подрядчику или черновиком
+
+
+@app.post("/api/tickets")
+async def create_ticket(body: TicketCreate):
+    if body.device_id and body.device_id not in registry.devices:
+        raise HTTPException(404, f"device not found: {body.device_id}")
+    ticket = Ticket(
+        category=body.category, level=body.level, title=body.title.strip(), description=body.description.strip(),
+        device_id=body.device_id, scope="building", address="ЖК «Северный», корп. 1",
+        status="new" if body.send else "draft", reasoning=["Заявку создала УК вручную."],
+    )
+    t = await tickets.create(ticket, actor="УК")
+    return t.model_dump(mode="json")
 
 
 class TicketMove(BaseModel):

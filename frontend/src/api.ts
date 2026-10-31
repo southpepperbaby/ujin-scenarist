@@ -150,6 +150,16 @@ export type Incident = {
   rule_id: string | null
 }
 
+/** Ручная заявка из кабинета УК; send: false сохраняет черновик. */
+export type TicketDraft = {
+  category: string
+  level: number
+  title: string
+  description: string
+  device_id: string | null
+  send: boolean
+}
+
 export type TicketStatus = 'draft' | 'new' | 'accepted' | 'in_progress' | 'done' | 'closed' | 'cancelled'
 
 export type Ticket = {
@@ -310,6 +320,7 @@ export const api = {
 
   incidents: (role: Role, limit = 50) => json<Incident[]>(`/api/incidents?limit=${limit}&role=${role}`),
   tickets: (role: Role) => json<Ticket[]>(`/api/tickets?role=${role}`),
+  createTicket: (draft: TicketDraft) => json<Ticket>('/api/tickets', { method: 'POST', ...body(draft) }),
   moveTicket: (id: string, status: TicketStatus, actor: string, note = '') =>
     json<Ticket>(`/api/tickets/${id}/transition`, { method: 'POST', ...body({ status, actor, note }) }),
   contractors: () => json<Contractor[]>('/api/contractors'),

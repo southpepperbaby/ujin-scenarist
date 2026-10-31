@@ -40,7 +40,7 @@ export function ManagerApp({ path, demo }: ManagerAppProps) {
   let page
   if (path === '/uk/assistant') page = <AssistantPage />
   else if (path === '/uk/incidents') page = <IncidentsPage dispatch={dispatch} />
-  else if (path === '/uk/tickets') page = <TicketsPage dispatch={dispatch} />
+  else if (path === '/uk/tickets') page = <TicketsPage dispatch={dispatch} devices={devices} />
   else if (path === '/uk/devices') page = <DevicesPage devices={devices} />
   else if (path === '/uk/rules') page = <RulesPage devices={devices} />
   else if (path === '/uk/sandbox') page = <SandboxPage devices={devices} events={events} telemetry={telemetry} />
