@@ -58,7 +58,8 @@ def _scenario(name: str, rule: Rule, g: "_Namer", offline: SetSignal | None) -> 
                 out.append(f"    И «{g.dev(a.device_id)}» получил команду «{g.sig(a.device_id, a.signal)}» = "
                            f"«{g.val(a.device_id, a.signal, a.value)}»")
         elif isinstance(a, Notify):
-            out.append(f"    И {'консьерж' if a.target == 'concierge' else 'житель'} получает уведомление")
+            who = 'консьерж' if a.target == 'concierge' else 'житель'
+            out.append(f"    И {who} получает уведомление" + (" о сбое" if offline else ""))
         else:
             out.append("    И подрядчику готовится заявка")
     return out
@@ -283,9 +284,10 @@ def _check_then(st: Step, g: _Namer, rule: Rule, report: dict) -> None:
                          else (sent[-1].get("detail", "не доставлено") if sent else "команды не было"))
         st.status = "passed" if ok else "failed"
         return
-    if m := re.fullmatch(r"(консьерж|житель) получает уведомление", st.text):
+    if m := re.fullmatch(r"(консьерж|житель) получает уведомление( о сбое)?", st.text):
         target = "concierge" if m.group(1) == "консьерж" else "resident"
-        hit = [n for n in report["notifications"] if n["target"] == target]
+        hit = [n for n in report["notifications"] if n["target"] == target
+               and (not m.group(2) or "не выполнено" in n["message"])]
         st.status = "passed" if hit else "failed"
         st.detail = hit[-1]["message"] if hit else "уведомлений нет"
         return
