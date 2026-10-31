@@ -1,0 +1,7 @@
+  ujin-bridge:
+    build: ./backend
+    command: python -m app.ujin_bridge
+    env_file: .env
+    depends_on:
+      - backend
+      - db
