@@ -35,12 +35,42 @@ export type Family = {
   inputs: string[]
   declaration: Omit<SignalDecl, 'value'>[]
   events: DeviceEvent[]
+  /** Свой тип из конструктора: его можно править и удалять. */
+  custom?: boolean
+  spec?: DeviceTypeSpec | null
+  /** Поведение своего типа простым языком, собрано бэкендом из behaviors. */
+  behavior?: string[]
 }
+
+export type SignalGroup = 'property' | 'event' | 'command' | 'setting'
+export type SignalValueType = 'number' | 'switch' | 'list' | 'text'
+
+export type SignalSpec = {
+  name: string
+  title: string
+  group: SignalGroup
+  type: SignalValueType
+  measure?: string
+  min?: number | null
+  max?: number | null
+  layout?: Record<string, string> | null
+  default?: number | string
+  alarm_value?: number | string | null
+}
+
+export type Behavior =
+  | { type: 'drift'; signal: string; step: number; noise: number }
+  | { type: 'effect'; command: string; value: number | string | null; target: string; target_value: number | string | null; delay: number }
+  | { type: 'threshold'; source: string; op: 'gt' | 'gte' | 'lt' | 'lte'; limit: number; target: string; value: number | string; else_value: number | string | null }
+
+export type DeviceTypeSpec = { family: string; title: string; signals: SignalSpec[]; behaviors?: Behavior[] }
 
 export type Op = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'changed'
 
 export type Trigger = { type: 'signal'; device_id: string; signal: string; op: Op; value: unknown }
-export type Condition = { device_id: string; signal: string; op: Op; value: unknown }
+export type SignalCondition = { type?: 'signal'; device_id: string; signal: string; op: Op; value: unknown }
+export type TimeCondition = { type: 'time'; start: string; end: string }
+export type Condition = SignalCondition | TimeCondition
 export type Action =
   | { type: 'set_signal'; device_id: string; signal: string; value: unknown; delay_s?: number }
   | { type: 'notify'; target: 'resident' | 'concierge'; message: string; level: 'info' | 'warning' | 'critical'; delay_s?: number }
@@ -69,6 +99,8 @@ export type Notification = {
   message: string
   rule_id: string | null
   rule_title: string | null
+  ticket_id?: string
+  incident_id?: string
 }
 
 export type BusEvent = {
@@ -183,19 +215,30 @@ export type SimulateReport = {
   lint: Lint
 }
 
+/** 422 от pydantic приходит списком {msg, loc}: сводим к читаемой строке. */
+function readableDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => String((item as { msg?: string }).msg ?? JSON.stringify(item)).replace(/^Value error, /, ''))
+      .join('; ')
+  }
+  return JSON.stringify(detail)
+}
+
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   })
   if (!res.ok) {
-    let detail = await res.text()
+    let detail: unknown = await res.text()
     try {
-      detail = JSON.parse(detail).detail ?? detail
+      detail = JSON.parse(detail as string).detail ?? detail
     } catch {
       /* текст как есть */
     }
-    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+    throw new Error(readableDetail(detail))
   }
   if (res.status === 204) return undefined as T
   return res.json()
@@ -209,7 +252,7 @@ export type LintIssue = { level: 'error' | 'warning' | 'info'; code: string; mes
 export type Lint = { ok: boolean; errors?: number; warnings?: number; issues: LintIssue[] }
 
 export type Compiled = {
-  intent: { intent: 'rule' | 'command' | 'question'; confidence: number }
+  intent: { intent: 'rule' | 'command' | 'question'; confidence?: number }
   text?: string
   rule: Rule | null
   explanation?: string
@@ -218,7 +261,18 @@ export type Compiled = {
   error?: string
 }
 
-export type Confirmed = { kind: 'rule' | 'command'; explanation: string; rule?: Rule; lint?: Lint }
+export type Confirmed = { kind: 'rule' | 'command'; explanation: string; rule?: Rule; lint?: Lint; run?: RunRecord }
+
+export type Policy = { auto_send_building: boolean; auto_categories: string[]; daily_limit: number }
+
+export type GherkinStep = { keyword: string; text: string; line: number; status: 'passed' | 'failed' | 'undefined' | 'skipped'; detail: string }
+export type GherkinReport = {
+  feature: string
+  passed: boolean
+  summary: string
+  text: string
+  scenarios: { name: string; passed: boolean; steps: GherkinStep[] }[]
+}
 
 export const api = {
   families: () => json<Family[]>('/api/families'),
@@ -227,7 +281,12 @@ export const api = {
     json<Device>('/api/devices', { method: 'POST', ...body(d) }),
   patchDevice: (id: string, patch: Partial<Pick<Device, 'title' | 'room' | 'scope' | 'online'>>) =>
     json<Device>(`/api/devices/${id}`, { method: 'PATCH', ...body(patch) }),
-  deleteDevice: (id: string) => json(`/api/devices/${id}`, { method: 'DELETE' }),
+  deleteDevice: (id: string) => json<void>(`/api/devices/${id}`, { method: 'DELETE' }),
+
+  createType: (spec: DeviceTypeSpec) => json<Family>('/api/device-types', { method: 'POST', ...body(spec) }),
+  updateType: (spec: DeviceTypeSpec) =>
+    json<Family>(`/api/device-types/${spec.family}`, { method: 'PUT', ...body(spec) }),
+  deleteType: (family: string) => json<void>(`/api/device-types/${family}`, { method: 'DELETE' }),
   command: (id: string, signal: string, value: unknown) =>
     json(`/api/devices/${id}/command`, { method: 'POST', ...body({ signal, value }) }),
   inject: (id: string, input: string, value: unknown) =>
@@ -249,9 +308,9 @@ export const api = {
   events: (limit = 100) => json<BusEvent[]>(`/api/events?limit=${limit}`),
   sim: (patch: { running?: boolean; speed?: number }) => json('/api/sim', { method: 'POST', ...body(patch) }),
 
-  incidents: (limit = 50) => json<Incident[]>(`/api/incidents?limit=${limit}`),
-  tickets: () => json<Ticket[]>('/api/tickets'),
-  moveTicket: (id: string, status: TicketStatus, actor = 'консьерж', note = '') =>
+  incidents: (role: Role, limit = 50) => json<Incident[]>(`/api/incidents?limit=${limit}&role=${role}`),
+  tickets: (role: Role) => json<Ticket[]>(`/api/tickets?role=${role}`),
+  moveTicket: (id: string, status: TicketStatus, actor: string, note = '') =>
     json<Ticket>(`/api/tickets/${id}/transition`, { method: 'POST', ...body({ status, actor, note }) }),
   contractors: () => json<Contractor[]>('/api/contractors'),
   dictionaries: () => json<Dictionaries>('/api/dictionaries'),
@@ -259,6 +318,9 @@ export const api = {
   lint: (rule: Rule) => json<Lint>('/api/lint', { method: 'POST', ...body(rule) }),
   simulate: (rule: Rule, ticks = 15) =>
     json<SimulateReport>('/api/simulate', { method: 'POST', ...body({ rule, ticks }) }),
+  policy: () => json<Policy>('/api/policy'),
+  setPolicy: (policy: Policy) => json<Policy>('/api/policy', { method: 'PUT', ...body(policy) }),
+  gherkin: (rule: Rule) => json<GherkinReport>('/api/gherkin/run', { method: 'POST', ...body({ rule }) }),
   explainRule: (id: string) => json<{ text: string }>(`/api/rules/${id}/explain`),
   executeNow: (rule: Rule) => json<RunRecord>('/api/nl/execute', { method: 'POST', ...body(rule) }),
 }

@@ -14,7 +14,8 @@ from pydantic import BaseModel
 
 from . import ai, config, gherkin, nl
 from .bus import EventBus
-from .dispatcher import Dispatcher, Policy
+from .device_types import GROUP_TITLES, DeviceType, DeviceTypes
+from .dispatcher import FAULTS, Dispatcher, Policy
 from .emu import REGISTRY, DeviceRegistry, family_info
 from .engine import Engine
 from .linter import lint, summary
@@ -36,6 +37,7 @@ tickets = TicketService(bus, storage=storage)
 engine = Engine(registry, bus, store)
 dispatcher = Dispatcher(bus, registry, tickets, notify=engine.notify)
 persistence = Persistence(storage, registry, engine, dispatcher)
+device_types = DeviceTypes(storage, faults=FAULTS)          # до restore: устройства своих типов поднимаются из базы
 mock_contractor.load(storage)
 engine.dispatch_hook = dispatcher.from_rule
 ujin = UjinBridge(bus, registry, config.UJIN)
@@ -108,7 +110,50 @@ def health():
 
 @app.get("/api/families")
 def families():
-    return [family_info(f) for f in sorted(REGISTRY)]
+    return [{**family_info(f), "custom": f in device_types.types,
+             "spec": device_types.types[f].model_dump(mode="json") if f in device_types.types else None,
+             "behavior": device_types.types[f].describe() if f in device_types.types else []}
+            for f in sorted(REGISTRY)]
+
+
+@app.get("/api/device-types/groups")
+def device_type_groups():
+    return GROUP_TITLES
+
+
+@app.post("/api/device-types", status_code=201)
+def create_device_type(spec: DeviceType):
+    """Конструктор: новый тип устройства из декларации сигналов, без Python и генератора из консоли."""
+    if spec.family in REGISTRY:
+        raise HTTPException(409, f"тип «{spec.family}» уже есть")
+    device_types.put(spec)
+    return family_info(spec.family)
+
+
+@app.put("/api/device-types/{family}")
+def update_device_type(family: str, spec: DeviceType):
+    """Правка типа: устройства этого типа пересоздаются с теми же id, названием, комнатой и связью."""
+    if family not in device_types.types:
+        raise HTTPException(404, "свой тип не найден")
+    spec.family = family
+    device_types.put(spec)
+    for m in [m for m in registry.devices.values() if m.family == family]:
+        online = m.online
+        registry.remove(m.id)
+        registry.create(family, title=m.title, room=m.room, scope=m.scope, device_id=m.id,
+                        binding=m.ujin, serial=m.device.serial)
+        registry.set_online(m.id, online)
+    return family_info(family)
+
+
+@app.delete("/api/device-types/{family}", status_code=204)
+def delete_device_type(family: str):
+    if family not in device_types.types:
+        raise HTTPException(404, "свой тип не найден")
+    used = [m.title for m in registry.devices.values() if m.family == family]
+    if used:
+        raise HTTPException(409, f"сначала удалите устройства этого типа: {', '.join(used)}")
+    device_types.delete(family)
 
 
 @app.get("/api/devices")

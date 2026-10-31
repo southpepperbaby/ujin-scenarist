@@ -42,8 +42,10 @@ async def llm_json(system: str, user: str, temperature: float = 0.1, timeout: fl
         "temperature": temperature,
         "response_format": {"type": "json_object"},
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        "provider": {"data_collection": "deny"},
+        "provider": {"data_collection": "deny", "sort": "latency"},
     }
+    if config.LLM_REASONING == "off":            # рассуждение модели удлиняет ответ в разы, для JSON по схеме не нужно
+        body["reasoning"] = {"enabled": False}
     for attempt in range(2):                     # лимит у всех моделей сразу: одна пауза и повтор
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
