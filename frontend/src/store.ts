@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { important } from './shared/events'
 import { api, openEvents, type BusEvent, type Device, type Family, type Notification, type Rule } from './api'
 
 type State = {
@@ -6,6 +7,7 @@ type State = {
   families: Family[]
   rules: Rule[]
   events: BusEvent[]
+  keyEvents: BusEvent[] // только важное для ленты песочницы, телеметрия его не вытесняет
   notifications: Notification[]
   error: string | null
   load: () => Promise<void>
@@ -24,6 +26,7 @@ export const useStore = create<State>((set, get) => ({
   families: [],
   rules: [],
   events: [],
+  keyEvents: [],
   notifications: [],
   error: null,
 
@@ -33,7 +36,7 @@ export const useStore = create<State>((set, get) => ({
       api.devices(),
       api.families(),
       api.rules(),
-      api.events(150),
+      api.events(1000), // вся история шины: из неё отбираем важное, телеметрии оставляем 300
       api.notifications(),
     ] as const)
     // Бэкенд недоступен целиком: пусть вызывающий решает (демо-режим при старте).
@@ -48,7 +51,8 @@ export const useStore = create<State>((set, get) => ({
       devices: seq === devicesSeq ? ok(devices, s.devices) : s.devices,
       families: ok(families, s.families),
       rules: ok(rules, s.rules),
-      events: ok(events, s.events),
+      events: ok(events, s.events).slice(-300),
+      keyEvents: ok(events, s.events).filter((e) => important(e, ok(devices, s.devices))).slice(-200),
       notifications: ok(notifications, s.notifications),
     })
     if (failed.length > 0) {
@@ -67,7 +71,10 @@ export const useStore = create<State>((set, get) => ({
 
   connect: () =>
     openEvents((e) => {
-      set((s) => ({ events: [...s.events.slice(-299), e] }))
+      set((s) => ({
+        events: [...s.events.slice(-299), e],
+        keyEvents: important(e, s.devices) ? [...s.keyEvents.slice(-199), e] : s.keyEvents,
+      }))
       if (e.kind === 'signal' && e.device_id) {
         set((s) => ({
           devices: s.devices.map((d) =>
