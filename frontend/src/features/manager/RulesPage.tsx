@@ -5,6 +5,7 @@ import { ruleLines } from '../../shared/rule/rule-lines'
 import { Button } from '../../shared/ui/Button'
 import { Toggle } from '../../shared/ui/Toggle'
 import { guard, useStore } from '../../store'
+import { GherkinCheck } from './GherkinCheck'
 import { RuleEditorModal, newRule } from './RuleEditorModal'
 
 type Editing = { rule: Rule; isNew: boolean } | null
@@ -67,10 +68,11 @@ export function RulesPage({ devices }: { devices: Device[] }) {
               <p className="text-[13px] text-ink-dim">
                 <span className="font-medium text-ink">То</span> {actions.join(' · ')}
               </p>
-              <footer className="mt-3 flex items-center gap-1">
+              <footer className="mt-3 flex flex-wrap items-center gap-1">
                 <Button variant="secondary" onClick={() => setEditing({ rule, isNew: false })}>
                   Изменить
                 </Button>
+                <GherkinCheck rule={rule} />
                 {confirm === rule.id ? (
                   <Button variant="danger" onClick={() => void remove(rule)}>
                     Да, удалить

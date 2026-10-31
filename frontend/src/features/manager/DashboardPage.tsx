@@ -57,7 +57,7 @@ export function DashboardPage({ devices, dispatch }: DashboardPageProps) {
           label="Ушло без человека"
           value={Math.round(autoShare * 100)}
           suffix="%"
-          hint={`остальное — черновики; пул из ${contractors.length} подрядчиков`}
+          hint={`остальное черновики, пул из ${contractors.length} подрядчиков`}
           icon="spark"
           tone="ok"
         />
@@ -89,7 +89,7 @@ export function DashboardPage({ devices, dispatch }: DashboardPageProps) {
             <div className="space-y-3 px-5 py-4 text-[13px] text-ink-dim">
               <p className="flex items-start gap-2">
                 <Icon name="spark" size={15} className="mt-0.5 shrink-0 text-accent" />
-                Порог уверенности Jev — 0,85. Выше: заявка уходит сама, ниже: решает диспетчер.
+                Известные аварии решает таблица, без ИИ. Jev подключается к неизвестным неисправностям и сочетаниям тревог.
               </p>
               <p className="flex items-start gap-2">
                 <Icon name="shield" size={15} className="mt-0.5 shrink-0 text-ok" />
@@ -97,7 +97,7 @@ export function DashboardPage({ devices, dispatch }: DashboardPageProps) {
               </p>
               <p className="flex items-start gap-2">
                 <Icon name="clock" size={15} className="mt-0.5 shrink-0 text-sev-minor" />
-                Уровень 3 — отправка сразу, уровни 1–2 — черновик и подтверждение одной кнопкой.
+                Уровень 3: отправка сразу. Уровни 1-2: черновик и подтверждение одной кнопкой.
               </p>
             </div>
           </Panel>
