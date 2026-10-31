@@ -11,7 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 Op = Literal["eq", "ne", "gt", "gte", "lt", "lte", "changed"]
 
@@ -32,8 +32,28 @@ class Trigger(SignalRef):
 
 class Condition(SignalRef):
     """Условие проверяется в момент срабатывания по текущему значению сигнала."""
+    type: Literal["signal"] = "signal"
     op: Op = "eq"
     value: Any = None
+
+
+class TimeCondition(BaseModel):
+    """Окно времени суток: «ночью» = 22:00-07:00, окно может переходить через полночь."""
+    type: Literal["time"] = "time"
+    start: str = Field(pattern=r"^\d{2}:\d{2}$")
+    end: str = Field(pattern=r"^\d{2}:\d{2}$")
+
+    def contains(self, hhmm: str) -> bool:
+        if self.start <= self.end:
+            return self.start <= hhmm < self.end
+        return hhmm >= self.start or hhmm < self.end
+
+    def inside(self) -> str:
+        """Момент внутри окна: нужен прогону, чтобы проверить правило «ночью» днём."""
+        return self.start
+
+
+AnyCondition = Annotated[Union[Condition, TimeCondition], Field(discriminator="type")]
 
 
 class SetSignal(BaseModel):
@@ -59,6 +79,29 @@ class Dispatch(BaseModel):
     note: str = ""
     delay_s: float = 0
 
+    @field_validator("category", mode="before")
+    @classmethod
+    def normalize_category(cls, v):
+        """LLM пишет «сантехник» вместо кода: приводим к справочнику, неизвестное отдаём автодиспетчеру."""
+        if not v:
+            return None
+        low = str(v).lower()
+        for code, words in CATEGORY_WORDS.items():
+            if low == code or any(w in low for w in words):
+                return code
+        return None
+
+
+CATEGORY_WORDS = {
+    "plumbing": ("сантех", "вод", "труб", "протеч", "клапан"),
+    "electric": ("электр", "свет", "розет"),
+    "access": ("ворот", "шлагбаум", "домофон", "замок", "скуд"),
+    "lift": ("лифт",),
+    "fire": ("пожар", "дым"),
+    "heating": ("отоплен", "вентиляц", "кондиц", "термостат", "тепл"),
+    "general": ("мастер", "общ"),
+}
+
 
 Action = Annotated[Union[SetSignal, Notify, Dispatch], Field(discriminator="type")]
 
@@ -74,7 +117,7 @@ class Rule(BaseModel):
     status: Literal["draft", "checked", "tested", "active"] = "draft"
     cooldown_s: float = 3
     trigger: Trigger
-    conditions: list[Condition] = []
+    conditions: list[AnyCondition] = []
     actions: list[Action] = Field(min_length=1)
 
 
@@ -131,7 +174,7 @@ class RuleStore:
         self.path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def to_ujin_autoscript(rule: Rule, serial_of: dict[str, str]) -> dict:
+def to_ujin_autoscript(rule: Rule, serial_of: dict[str, str], prefix: str = "") -> dict:
     """Экспорт в формат autoscripts/edit: `when:device-<sn>:<signal>=<v>` / `device-<sn>:<signal>:<v>`.
 
     Платформа понимает только равенство в условии и только выставление сигнала в действии,
@@ -146,7 +189,7 @@ def to_ujin_autoscript(rule: Rule, serial_of: dict[str, str]) -> dict:
     sets = []
     for a in rule.actions:
         if isinstance(a, SetSignal) and a.device_id in serial_of:
-            sets.append(f"device-{serial_of[a.device_id]}:{a.signal}:{a.value}")
+            sets.append(f"device-{serial_of[a.device_id]}:{prefix}{a.signal}:{a.value}")
         else:
             unsupported.append(f"action {a.type}")
     if t.device_id not in serial_of:
@@ -154,7 +197,7 @@ def to_ujin_autoscript(rule: Rule, serial_of: dict[str, str]) -> dict:
     return {
         "scenario_type": "trigger",
         "title": rule.title,
-        "condition": f"when:device-{serial_of.get(t.device_id, '?')}:{t.signal}={t.value}",
+        "condition": f"when:device-{serial_of.get(t.device_id, '?')}:{prefix}{t.signal}={t.value}",
         "set_signal": ";".join(sets),
         "unsupported": unsupported,
     }

@@ -74,6 +74,7 @@ class Managed:
     scope: str = "apartment"          # apartment | building
     ujin: dict | None = None          # привязка к стенду: sn / ext / model, если есть
     online: bool = True
+    params: dict = field(default_factory=dict)   # параметры эмулятора (ресурс счётчика, этажи лифта)
 
     def state(self) -> dict[str, Any]:
         return {name: sig.value for name, sig in self.device.signals.items()}
@@ -126,7 +127,7 @@ class DeviceRegistry:
         logger = lambda msg, _id=device_id: self.bus.emit("log", _id, message=str(msg))  # noqa: E731
         device = cls(serial=serial, client=None, logger=logger, **kwargs)
         managed = Managed(id=device_id, family=family, title=title or cls.title,
-                          device=device, room=room, scope=scope, ujin=binding)
+                          device=device, room=room, scope=scope, ujin=binding, params=dict(kwargs))
         self.devices[device_id] = managed
         self.bus.emit("device", device_id, action="created", device=managed.to_dict())
         return managed
