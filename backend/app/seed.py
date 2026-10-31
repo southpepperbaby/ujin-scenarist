@@ -47,7 +47,8 @@ def seed_rules() -> list[Rule]:
             trigger=Trigger(device_id="kitchen-smoke", signal="alarm", op="eq", value=1),
             actions=[
                 SetSignal(device_id="yard-barrier", signal="open_cmd", value=1),
-                Notify(target="concierge", level="critical", message="Пожарная тревога в кв. 2806. Шлагбаум открыт."),
+                SetSignal(device_id="lift-1", signal="call_requested", value=1),
+                Notify(target="concierge", level="critical", message="Пожарная тревога в кв. 2806. Шлагбаум открыт, лифт вызван на 1 этаж."),
                 Notify(target="resident", level="critical", message="Сработал пожарный датчик на кухне. Покиньте квартиру."),
             ],
         ),
