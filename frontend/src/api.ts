@@ -110,6 +110,23 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
 
 const body = (data: unknown) => ({ body: JSON.stringify(data) })
 
+export type Role = 'resident' | 'uk'
+
+export type LintIssue = { level: 'error' | 'warning' | 'info'; code: string; message: string }
+export type Lint = { ok: boolean; issues: LintIssue[] }
+
+export type Compiled = {
+  intent: { intent: 'rule' | 'command' | 'question'; confidence: number }
+  text?: string
+  rule: Rule | null
+  explanation?: string
+  lint?: Lint
+  answer?: string
+  error?: string
+}
+
+export type Confirmed = { kind: 'rule' | 'command'; explanation: string; rule?: Rule; lint?: Lint }
+
 export const api = {
   families: () => json<Family[]>('/api/families'),
   devices: () => json<Device[]>('/api/devices'),
@@ -129,6 +146,10 @@ export const api = {
   deleteRule: (id: string) => json(`/api/rules/${id}`, { method: 'DELETE' }),
   runRule: (id: string) => json(`/api/rules/${id}/run`, { method: 'POST' }),
   exportRule: (id: string) => json<Record<string, unknown>>(`/api/rules/${id}/ujin`),
+
+  compile: (text: string, role: Role, previous?: string) =>
+    json<Compiled>('/api/nl/compile', { method: 'POST', ...body({ text, role, previous }) }),
+  confirm: (rule: Rule, role: Role) => json<Confirmed>('/api/nl/confirm', { method: 'POST', ...body({ rule, role }) }),
 
   notifications: () => json<Notification[]>('/api/notifications?limit=100'),
   events: (limit = 100) => json<BusEvent[]>(`/api/events?limit=${limit}`),

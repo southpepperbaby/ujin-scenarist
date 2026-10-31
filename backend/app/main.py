@@ -262,14 +262,38 @@ def explain_rule(rule_id: str):
 class NLRequest(BaseModel):
     text: str
     role: str = "resident"
+    previous: str | None = None          # прошлая просьба, когда человек нажал «нет, дополнить»
+
+
+class NLConfirm(BaseModel):
+    rule: Rule
+    role: str = "resident"
 
 
 @app.post("/api/nl/compile")
 async def nl_compile(body: NLRequest):
     try:
-        return await nl.compile_text(body.text, registry, store.all(), role=body.role)
+        return await nl.compile_text(body.text, registry, store.all(), role=body.role, previous=body.previous)
     except ai.AIUnavailable as exc:
         raise HTTPException(503, f"ИИ недоступен: {exc}")
+
+
+@app.post("/api/nl/confirm")
+async def nl_confirm(body: NLConfirm):
+    """«Да, подтвердить» на карточке пересказа. Одинаково для жителя и УК.
+
+    Разовая команда выполняется сразу. Правило сохраняется и включается, если линтер не нашёл ошибок;
+    с ошибками остаётся черновиком, и человек видит почему.
+    """
+    rule = body.rule
+    explanation = nl.explain(rule, registry)
+    if rule.trigger.device_id == "__now__":
+        return {"kind": "command", "explanation": explanation, "run": await nl.execute_now(rule, engine)}
+    report = summary(lint(rule, store.all(), registry))
+    rule.enabled = report["ok"]
+    rule.status = "active" if report["ok"] else "draft"
+    store.put(rule)
+    return {"kind": "rule", "explanation": explanation, "rule": rule.model_dump(mode="json"), "lint": report}
 
 
 @app.post("/api/nl/execute")
