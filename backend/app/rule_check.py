@@ -1,27 +1,26 @@
 """Проверка правила для человека: прогон на копии дома, итог в две-три строки простым языком.
 
 Запускается сама при «Да, подтвердить». Реальные устройства не трогаются: прогон идёт на клоне реестра
-(simulate), заявки в нём не отправляются. Два сценария:
-1. Обычный: срабатывает триггер, правило выполняет действия. Не прошёл: правило остаётся черновиком.
-2. Первое управляемое устройство без связи: что узнает человек о сбое. Это предупреждение, а не провал:
-   устройство может отвалиться в жизни, важно, чтобы об этом сказали.
+(simulate), заявки в нём не отправляются. Срабатывает триггер, правило выполняет действия; не прошло,
+значит остаётся черновиком.
+
+Отдельно предупреждаем, если о сбое устройства никто не узнает: в правиле есть команды, но нет
+уведомления. «Команда не пройдёт без связи» верно для любого правила, поэтому эту строку не пишем, если
+уведомление есть: движок сам допишет в него, что команда сорвалась.
 """
 from __future__ import annotations
 
 from .emu import DeviceRegistry
-from .rules import Rule, SetSignal
+from .rules import Notify, Rule, SetSignal
 from .simulate import simulate
-
-WHO = {"concierge": "консьерж", "resident": "вы"}
 
 
 async def check_rule(rule: Rule, registry: DeviceRegistry, rules: list[Rule]) -> dict:
     report = await simulate(rule, registry, rules)
     lines = [_main_line(rule, report, registry)]
-    first = next((a for a in rule.actions if isinstance(a, SetSignal)), None)
-    if report["passed"] and first and first.device_id != rule.trigger.device_id:
-        offline = await simulate(rule, registry, rules, offline=[first.device_id])
-        lines.append(_offline_line(rule, offline, registry, first.device_id))
+    controlled = [a.device_id for a in rule.actions if isinstance(a, SetSignal)]
+    if report["passed"] and controlled and not any(isinstance(a, Notify) for a in rule.actions):
+        lines.append(_silent_failure_line(controlled, registry))
     return {"passed": report["passed"], "lines": lines}
 
 
@@ -43,17 +42,10 @@ def _main_line(rule: Rule, report: dict, registry: DeviceRegistry) -> dict:
     return {"kind": "ok", "text": f"Проверили на копии вашего дома: {cause} → {steps}."}
 
 
-def _offline_line(rule: Rule, report: dict, registry: DeviceRegistry, device_id: str) -> dict:
-    title = registry.title(device_id)
-    run = next((r for r in reversed(report["runs"]) if r["rule_id"] == rule.id), None)
-    targets = {a.get("target") for a in (run or {}).get("actions", []) if a["type"] == "notify" and a["status"] == "ok"}
-    told = [WHO[t] for t in ("concierge", "resident") if t in targets]
-    if told:
-        who = " и ".join(told)
-        verb = "узнает" if told == ["консьерж"] else "узнаете"
-        return {"kind": "warn", "text": f"Если «{title}» будет без связи: команда не пройдёт, но {who} {verb} о сбое."}
-    return {"kind": "warn", "text": f"Если «{title}» будет без связи: команда не пройдёт, и никто не узнает. "
-                                    f"Стоит добавить уведомление."}
+def _silent_failure_line(device_ids: list[str], registry: DeviceRegistry) -> dict:
+    names = ", ".join(f"«{registry.title(d)}»" for d in dict.fromkeys(device_ids))
+    return {"kind": "warn", "text": f"Если {names} не ответит, об этом никто не узнает: в правиле нет уведомления. "
+                                    f"Допишите, например, «и сообщи мне»."}
 
 
 def _action_done(a: dict, registry: DeviceRegistry) -> str:
