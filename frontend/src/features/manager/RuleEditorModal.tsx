@@ -16,17 +16,9 @@ import { ErrorNote, Field, SelectInput, TextInput } from '../../shared/ui/Fields
 import { Modal } from '../../shared/ui/Modal'
 import { Toggle } from '../../shared/ui/Toggle'
 import { deviceById, useStore } from '../../store'
+import { useCategories } from '../../shared/use-categories'
 
 const OPS = Object.keys(OP_TITLE) as Op[]
-
-const CATEGORIES: [string, string][] = [
-  ['', 'категорию определит ИИ'],
-  ['plumbing', 'сантехника'],
-  ['electric', 'электрика'],
-  ['access', 'ворота и СКУД'],
-  ['lift', 'лифт'],
-  ['fire', 'пожарная безопасность'],
-]
 
 export function newRule(devices: Device[]): Rule {
   const first = devices.find((d) => d.scope === 'building') ?? devices[0]
@@ -360,6 +352,7 @@ function SignalPicker({
 }
 
 function ActionEditor({ action, devices, onChange }: { action: Action; devices: Device[]; onChange: (a: Action) => void }) {
+  const categories = useCategories()
   const delay = (
     <label className="flex items-center gap-1 text-[12px] text-ink-mute">
       через
@@ -417,7 +410,8 @@ function ActionEditor({ action, devices, onChange }: { action: Action; devices: 
     <div className="flex flex-wrap items-center gap-2">
       <Chip>заявка</Chip>
       <SelectInput value={action.category ?? ''} onChange={(event) => onChange({ ...action, category: event.target.value || null })}>
-        {CATEGORIES.map(([key, label]) => (
+        <option value="">категорию определит ИИ</option>
+        {Object.entries(categories).map(([key, label]) => (
           <option key={key} value={key}>
             {label}
           </option>
