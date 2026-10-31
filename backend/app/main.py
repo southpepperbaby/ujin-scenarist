@@ -19,14 +19,16 @@ from .dispatcher import FAULTS, Dispatcher, Policy
 from .emu import REGISTRY, DeviceRegistry, family_info
 from .engine import Engine
 from .linter import lint, summary
-from .rules import Rule, RuleStore, to_ujin_autoscript
+from .rule_check import check_rule
+from .rules import NOW, Rule, RuleStore
 from .seed import SEED_DEVICES, seed_rules
 from .simulate import simulate
 from . import mock_contractor
 from .mock_contractor import router as mock_contractor_router
 from .persistence import Persistence
 from .storage import Storage
-from .tickets import CATEGORY_TITLES, STATUS_TITLES, Category, Contractor, Ticket, TicketService, verify, visible_to
+from .tickets import (CATEGORY_TITLES, STATUS_TITLES, Category, Contractor, Ticket, TicketService, verify,
+                      visible_to, visible_to_role)
 from .ujin_bridge import UjinBridge
 
 bus = EventBus()
@@ -57,7 +59,7 @@ async def lifespan(_app: FastAPI):
             store.put(rule)
     storage.put("settings", "seeded_rules", sorted(seeded | {rule.id for rule in seed_rules()}))
     tasks = [asyncio.create_task(c) for c in (
-        registry.run(), engine.run(), dispatcher.run(), ujin.run(), persistence.run())]
+        registry.run(), engine.run(), dispatcher.run(), ujin.run(), persistence.run(), ai.keep_warm())]
     yield
     for task in tasks:
         task.cancel()
@@ -279,7 +281,7 @@ async def simulate_rule(body: SimRequest):
                             offline=body.offline, with_others=body.with_others, at=body.at)
     report["lint"] = summary(lint(body.rule, store.all(), registry))
     stored = store.rules.get(body.rule.id)
-    if stored and report["passed"] and report["lint"]["ok"] and stored.status in ("draft", "checked"):
+    if stored and report["passed"] and report["lint"]["ok"] and stored.status == "draft":
         stored.status = "tested"
         store.put(stored)
     return report
@@ -332,18 +334,22 @@ async def nl_compile(body: NLRequest):
 async def nl_confirm(body: NLConfirm):
     """«Да, подтвердить» на карточке пересказа. Одинаково для жителя и УК.
 
-    Разовая команда выполняется сразу. Правило сохраняется и включается, если линтер не нашёл ошибок;
-    с ошибками остаётся черновиком, и человек видит почему.
+    Разовая команда выполняется сразу. Правило сначала проходит линтер и прогон на копии дома
+    (rule_check), включается только если прошло оба; иначе остаётся черновиком, и человек видит почему.
     """
     rule = body.rule
     explanation = nl.explain(rule, registry)
-    if rule.trigger.device_id == "__now__":
+    if rule.trigger.device_id == NOW:
         return {"kind": "command", "explanation": explanation, "run": await nl.execute_now(rule, engine)}
-    report = summary(lint(rule, store.all(), registry))
-    rule.enabled = report["ok"]
-    rule.status = "active" if report["ok"] else "draft"
+    others = [r for r in store.all() if r.id != rule.id]
+    report = summary(lint(rule, others, registry))
+    check = await check_rule(rule, registry, others) if report["ok"] else None
+    ok = report["ok"] and bool(check and check["passed"])
+    rule.enabled = ok
+    rule.status = "active" if ok else "draft"
     store.put(rule)
-    return {"kind": "rule", "explanation": explanation, "rule": rule.model_dump(mode="json"), "lint": report}
+    return {"kind": "rule", "explanation": explanation, "rule": rule.model_dump(mode="json"), "lint": report,
+            "check": check}
 
 
 @app.post("/api/nl/execute")
@@ -365,8 +371,7 @@ async def run_rule(rule_id: str):
 
 @app.get("/api/rules/{rule_id}/ujin")
 def export_rule(rule_id: str):
-    serials = {m.id: m.ujin["sn"] for m in registry.devices.values() if m.ujin}
-    return to_ujin_autoscript(_rule(rule_id), serials, prefix="integrations_devices_")
+    return ujin.export(_rule(rule_id))
 
 
 @app.get("/api/runs")
@@ -385,11 +390,8 @@ def notifications(target: str | None = None, limit: int = 50):
 @app.get("/api/incidents")
 def incidents(limit: int = 50, role: str | None = None):
     rows = sorted(dispatcher.incidents.values(), key=lambda i: i["ts"])
-    if role == "resident":
-        rows = [i for i in rows if i["scope"] == "apartment"]
-    elif role == "uk":
-        rows = [i for i in rows if i["scope"] == "building" or (i.get("verdict") or {}).get("level", 0) >= 3]
-    return rows[-limit:]
+    level = lambda i: (i.get("verdict") or {}).get("level", 0)  # noqa: E731
+    return [i for i in rows if role is None or visible_to_role(i["scope"], level(i), role)][-limit:]
 
 
 @app.get("/api/tickets")
@@ -537,13 +539,19 @@ def events(limit: int = 100):
     return bus.recent(limit)
 
 
+WS_QUEUE = 500
+
+
 @app.websocket("/ws")
 async def ws_events(ws: WebSocket):
     await ws.accept()
-    q = bus.subscribe()
+    q = bus.subscribe(maxsize=WS_QUEUE)
     try:
         while True:
             event = await q.get()
+            if event is None:                    # клиент не успевал читать: пусть переподключится
+                await ws.close(code=1013)
+                break
             await ws.send_json(event.to_dict())
     except WebSocketDisconnect:
         pass

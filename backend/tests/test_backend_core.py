@@ -6,7 +6,7 @@ from app.dispatcher import Dispatcher
 from app.emu import DeviceRegistry
 from app.engine import Engine
 from app.linter import lint, summary
-from app.rules import Notify, Rule, RuleStore, SetSignal, Trigger
+from app.rules import NOW, Dispatch, Notify, Rule, RuleStore, SetSignal, Trigger
 from app.simulate import simulate
 from app.tickets import TicketService
 
@@ -180,6 +180,62 @@ async def test_duplicate_incident_does_not_create_second_ticket(monkeypatch):
     await disp.handle("leak", "leak", "Протечка воды")
     second = await disp.handle("leak", "leak", "Протечка воды")
     assert second["decision"] == "duplicate" and len(tickets.tickets) == 1
+
+
+@pytest.mark.asyncio
+async def test_related_fault_joins_open_ticket_of_same_contractor(monkeypatch):
+    monkeypatch.setattr(ai, "jev", no_jev)
+    _, _, tickets, _, disp = dispatch_setup()
+    first = await disp.handle("leak", "leak", "Протечка воды")
+    second = await disp.handle("valve", "jammed", "Заклинило привод клапана", forced_category="plumbing")
+    t = tickets.tickets[first["ticket_id"]]
+    assert second["decision"] == "merged" and second["ticket_id"] == t.id and len(tickets.tickets) == 1
+    assert "Заклинило привод клапана" in t.description and t.related_devices == ["valve"] and t.level == 3
+
+
+@pytest.mark.asyncio
+async def test_critical_fault_sends_open_draft_of_same_contractor(monkeypatch):
+    monkeypatch.setattr(ai, "jev", no_jev)
+    _, _, tickets, engine, disp = dispatch_setup()
+    draft = await disp.handle("valve", "jammed", "Заклинило привод клапана")
+    assert draft["decision"] == "draft"
+    leak = await disp.handle("leak", "leak", "Протечка воды")
+    t = tickets.tickets[draft["ticket_id"]]
+    assert leak["decision"] == "merged" and len(tickets.tickets) == 1
+    assert t.status == "new" and t.level == 3 and t.needs_confirmation is None
+    assert any(n["target"] == "concierge" and n["level"] == "critical" for n in engine.notifications)
+
+
+@pytest.mark.asyncio
+async def test_one_off_call_for_plumber_creates_draft_without_device(monkeypatch):
+    monkeypatch.setattr(ai, "jev", no_jev)
+    _, _, tickets, engine, disp = dispatch_setup()
+    engine.dispatch_hook = disp.from_rule
+    rule = Rule(title="Вызови сантехника", trigger=Trigger(device_id=NOW, signal=NOW, value=1),
+                actions=[Dispatch(category="сантехник", note="Капает кран")])
+    run = await engine.execute(rule, None)
+    assert run["status"] == "ok", run
+    t = next(iter(tickets.tickets.values()))
+    assert t.status == "draft" and t.category == "plumbing" and t.device_id is None and t.title == "Капает кран"
+
+
+@pytest.mark.asyncio
+async def test_one_off_dispatch_takes_device_from_action(monkeypatch):
+    monkeypatch.setattr(ai, "jev", no_jev)
+    _, _, tickets, engine, disp = dispatch_setup()
+    engine.dispatch_hook = disp.from_rule
+    rule = Rule(title="Мастер к клапану", trigger=Trigger(device_id=NOW, signal=NOW, value=1),
+                actions=[Dispatch(category="plumbing", device_id="valve")])
+    await engine.execute(rule, None)
+    assert next(iter(tickets.tickets.values())).device_id == "valve"
+
+
+def test_device_reports_active_alarms():
+    _, reg = house()
+    reg.inject("leak", "wet", True)
+    reg.step_all()
+    assert reg.get("leak").to_dict()["alarms"] == ["Протечка воды"]
+    assert reg.get("light").to_dict()["alarms"] == []
 
 
 @pytest.mark.asyncio
@@ -375,3 +431,38 @@ async def test_uk_can_enable_auto_send_for_building_minor(monkeypatch):
     tickets.tickets.clear()
     third = await disp.handle("barrier", "alarm", "Авария шлагбаума")
     assert third["decision"] == "draft"
+
+
+def test_slow_subscriber_is_asked_to_reconnect():
+    bus = EventBus()
+    q = bus.subscribe(maxsize=2)
+    for _ in range(5):
+        bus.emit("tick")
+    assert q.qsize() == 1 and q.get_nowait() is None
+
+
+@pytest.mark.asyncio
+async def test_rule_check_warns_only_when_failure_would_go_unnoticed():
+    from app.rule_check import check_rule
+    _, reg = house()
+    told = rule(actions=[SetSignal(device_id="valve", signal="valve", value=0),
+                         Notify(target="concierge", level="critical", message="Протечка")])
+    out = await check_rule(told, reg, [])
+    assert out["passed"] and [line["kind"] for line in out["lines"]] == ["ok"]
+    assert "консьерж получил уведомление" in out["lines"][0]["text"]
+
+    silent = rule(actions=[SetSignal(device_id="valve", signal="valve", value=0)])
+    out = await check_rule(silent, reg, [])
+    assert [line["kind"] for line in out["lines"]] == ["ok", "warn"] and "никто не узнает" in out["lines"][1]["text"]
+
+
+@pytest.mark.asyncio
+async def test_rule_check_fails_on_priority_conflict():
+    from app.rule_check import check_rule
+    bus, reg = house()
+    uk = Rule(id="uk", title="Ночной режим", owner="uk", priority=100, trigger=Trigger(device_id="leak", signal="leak", value=1),
+              actions=[SetSignal(device_id="light", signal="lamp", value=0)])
+    mine = Rule(id="mine", title="Свет при протечке", trigger=Trigger(device_id="leak", signal="leak", value=1),
+                actions=[SetSignal(device_id="light", signal="lamp", value=1)])
+    out = await check_rule(mine, reg, [uk])
+    assert not out["passed"] and out["lines"][0]["kind"] == "fail" and "Ночной режим" in out["lines"][0]["text"]

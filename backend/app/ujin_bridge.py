@@ -126,10 +126,14 @@ class UjinBridge:
 
     # ---------- сценарии платформы ----------
 
+    def export(self, rule: Rule) -> dict:
+        """Правило в формате autoscripts платформы: серийники устройств стенда вместо наших id."""
+        serials = {m.id: m.ujin["sn"] for m in self.registry.devices.values() if m.ujin}
+        return to_ujin_autoscript(rule, serials, prefix=CLS + "_")
+
     def push_rule(self, rule: Rule) -> dict:
         """Отправить правило в autoscripts платформы (то, что платформа умеет выразить)."""
-        serials = {m.id: m.ujin["sn"] for m in self.registry.devices.values() if m.ujin}
-        payload = to_ujin_autoscript(rule, serials, prefix=CLS + "_")
+        payload = self.export(rule)
         if not payload["set_signal"]:
             return {"ok": False, "payload": payload, "detail": "у правила нет команд устройствам стенда"}
         client = self.client()

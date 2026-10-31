@@ -145,6 +145,7 @@ function TypeEditor({ family, families, onClose, onBack, onSaved }: TypeEditorPr
   }
 
   const save = async () => {
+    if (busy) return
     const problem = validate(title, rows) || validateBehaviors(behaviors, rows)
     if (problem) return setError(problem)
     setBusy(true)
@@ -170,7 +171,7 @@ function TypeEditor({ family, families, onClose, onBack, onSaved }: TypeEditorPr
       wide
       footer={
         <>
-          <Button variant="primary" onClick={() => void save()}>
+          <Button variant="primary" onClick={() => void save()} disabled={busy}>
             Сохранить тип
           </Button>
           <Button variant="ghost" onClick={onBack}>

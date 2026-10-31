@@ -18,19 +18,10 @@ import httpx
 from pydantic import BaseModel, Field
 
 from . import config
+from .dictionaries import CATEGORY_TITLES  # noqa: F401  отдаётся дальше как tickets.CATEGORY_TITLES
 from .bus import EventBus
 
 Category = Literal["plumbing", "electric", "access", "lift", "fire", "heating", "general"]
-
-CATEGORY_TITLES = {
-    "plumbing": "Сантехника и водоснабжение",
-    "electric": "Электрика и освещение",
-    "access": "Ворота, шлагбаум, СКУД",
-    "lift": "Лифтовое хозяйство",
-    "fire": "Пожарная безопасность",
-    "heating": "Отопление и вентиляция",
-    "general": "Общие работы",
-}
 
 Status = Literal["draft", "new", "accepted", "in_progress", "done", "closed", "cancelled"]
 
@@ -86,6 +77,7 @@ class Ticket(BaseModel):
     description: str
     address: str = "ЖК «Северный», корп. 1, кв. 2806"
     device_id: str | None = None
+    related_devices: list[str] = []         # другие устройства, чьи неисправности вошли в эту заявку
     scope: Literal["apartment", "building"] = "apartment"
     incident_id: str | None = None
     rule_id: str | None = None
@@ -134,13 +126,17 @@ SEED_CONTRACTORS = [
 ]
 
 
-def visible_to(t: "Ticket", role: str) -> bool:
-    """Житель видит заявки своей квартиры. УК видит общедомовые и только критичные из квартир."""
+def visible_to_role(scope: str, level: int, role: str) -> bool:
+    """Житель видит свою квартиру. УК видит общедомовое и только критичное из квартир."""
     if role == "resident":
-        return t.scope == "apartment"
+        return scope == "apartment"
     if role == "uk":
-        return t.scope == "building" or t.level >= 3
+        return scope == "building" or level >= 3
     return True
+
+
+def visible_to(t: "Ticket", role: str) -> bool:
+    return visible_to_role(t.scope, t.level, role)
 
 
 class TicketService:
@@ -179,6 +175,25 @@ class TicketService:
             if t.device_id == device_id and t.status not in ("done", "closed", "cancelled"):
                 return t
         return None
+
+    def open_for_contractor(self, contractor_id: str, scope: str) -> Ticket | None:
+        """Открытая заявка тому же подрядчику на тот же адрес: вторая бригада на одну аварию не нужна."""
+        for t in self.tickets.values():
+            if t.contractor_id == contractor_id and t.scope == scope and t.status in ("draft", "new", "accepted"):
+                return t
+        return None
+
+    async def attach(self, t: Ticket, title: str, device_id: str | None, level: int, send: bool) -> Ticket:
+        """Связанная неисправность дописывается в открытую заявку. Критичное отправляет черновик сразу."""
+        t.description += f" Также: {title}."
+        t.related_devices.append(device_id or "")
+        t.level = max(t.level, level)
+        if send and t.status == "draft":
+            t.needs_confirmation = None
+            return await self.transition(t.id, "new", "автодиспетчер", note=f"срочно из-за: {title}")
+        t.history.append(HistoryItem(status=t.status, actor="автодиспетчер", note=f"добавлено: {title}"))
+        self._emit(t, "status")
+        return t
 
     def count_today(self, device_id: str) -> int:
         day = time.time() - 86400

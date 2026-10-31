@@ -147,3 +147,19 @@ def test_behavior_must_reference_sensible_signals():
                                       "value": 1}]}
     with pytest.raises(ValidationError, match="неизвестный сигнал"):
         DeviceType.model_validate(bad)
+
+
+def test_pending_effect_survives_restart():
+    types = DeviceTypes()
+    types.put(DeviceType.model_validate(PRESSURE))
+    try:
+        reg = DeviceRegistry(EventBus())
+        reg.create("pressure", device_id="p1")
+        reg.command("p1", "pump", 1)
+        reg.step_all()                                                 # до результата остался один тик
+        again = DeviceRegistry(EventBus())
+        again.restore(reg.snapshot())
+        again.step_all()
+        assert again.get("p1").state()["bar"] == 9
+    finally:
+        types.delete("pressure")

@@ -21,6 +21,29 @@ class AIUnavailable(RuntimeError):
     """Нет ключа или сеть недоступна: вызывающий код переходит на запасной путь без ИИ."""
 
 
+_client: httpx.AsyncClient | None = None
+
+
+def client() -> httpx.AsyncClient:
+    """Одно соединение на весь процесс. С сервера TLS-рукопожатие с OpenRouter (Cloudflare) идёт 6-7 с,
+    поэтому новое соединение на каждый запрос делало ответ чата в 10 раз медленнее."""
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=40, limits=httpx.Limits(keepalive_expiry=600))
+    return _client
+
+
+async def keep_warm(every: float = 45) -> None:
+    """Дешёвый запрос раз в 45 с держит соединение открытым, чтобы первый запрос жителя не ждал рукопожатия."""
+    while True:
+        if enabled():
+            try:
+                await client().get(f"{OPENROUTER}/v1/key", headers=_headers(), timeout=15)
+            except httpx.HTTPError:
+                pass
+        await asyncio.sleep(every)
+
+
 def enabled() -> bool:
     return bool(config.OPENROUTER_API_KEY)
 
@@ -48,8 +71,8 @@ async def llm_json(system: str, user: str, temperature: float = 0.1, timeout: fl
         body["reasoning"] = {"enabled": False}
     for attempt in range(2):                     # лимит у всех моделей сразу: одна пауза и повтор
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                r = await client.post(f"{OPENROUTER}/v1/chat/completions", headers=_headers(), json=body)
+            r = await client().post(f"{OPENROUTER}/v1/chat/completions", headers=_headers(), json=body,
+                                    timeout=timeout)
         except httpx.HTTPError as exc:
             raise AIUnavailable(f"LLM недоступна: {exc}") from exc
         if r.status_code != 429:
@@ -77,8 +100,7 @@ async def jev(state: Any, questions: dict, timeout: float = 20) -> dict:
     """Jev: типизированные вопросы → ответы с вероятностями. Возвращает dict answers."""
     body = {"model": config.JEV_MODEL, "state": state, "questions": questions}
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.post(f"{OPENROUTER}/alpha/decisions", headers=_headers(), json=body)
+        r = await client().post(f"{OPENROUTER}/alpha/decisions", headers=_headers(), json=body, timeout=timeout)
     except httpx.HTTPError as exc:
         raise AIUnavailable(f"Jev недоступен: {exc}") from exc
     if r.status_code != 200:
