@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, type Action, type Condition, type Device, type Op, type Rule, type Trigger } from './api'
+import { api, type Action, type Condition, type SignalCondition, type Device, type Op, type Rule, type Trigger } from './api'
 import { deviceById, guard, signalTitle, useStore, valueLabel } from './store'
 import { Badge, Button, Card, cx, FAMILY_ICON, Input, Modal, SectionTitle, Select } from './ui'
 
@@ -149,7 +149,7 @@ export function RuleEditor({ rule, isNew, onSaved, onDeleted }: { rule: Rule; is
         {r.conditions.map((c, i) => (
           <Row key={i} onRemove={() => patch({ conditions: r.conditions.filter((_, j) => j !== i) })}>
             <SignalPicker
-              value={c}
+              value={c as SignalCondition}
               devices={devices}
               withOp
               onChange={(v) => patch({ conditions: r.conditions.map((x, j) => (j === i ? ({ ...x, ...v } as Condition) : x)) })}
