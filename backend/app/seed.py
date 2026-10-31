@@ -1,7 +1,7 @@
 """Демо-дом: устройства квартиры и общедомовое, эталонные правила из ТЗ."""
 from __future__ import annotations
 
-from .rules import Notify, Rule, SetSignal, TimeCondition, Trigger
+from .rules import Dispatch, Notify, Rule, SetSignal, TimeCondition, Trigger
 
 # id, семейство, название, помещение, уровень, параметры эмулятора
 SEED_DEVICES = [
@@ -52,6 +52,47 @@ def seed_rules() -> list[Rule]:
                 SetSignal(device_id="lift-1", signal="call_requested", value=1),
                 Notify(target="concierge", level="critical", message="Пожарная тревога в кв. 2806. Шлагбаум открыт, лифт вызван на 1 этаж."),
                 Notify(target="resident", level="critical", message="Сработал пожарный датчик на кухне. Покиньте квартиру."),
+            ],
+        ),
+        Rule(
+            id="valve-jammed",
+            title="Клапан заклинило: вызвать сантехника",
+            description="Правило УК уровня дома: защита от протечки не сработает — сантехник едет сразу, консьерж и житель в курсе.",
+            scope="building", owner="uk", priority=95, status="active",
+            trigger=Trigger(device_id="kitchen-valve", signal="jammed", op="eq", value=1),
+            actions=[
+                Notify(target="concierge", level="critical",
+                       message="В кв. 2806 заклинило клапан холодной воды: при протечке вода не перекроется."),
+                Dispatch(category="plumbing", note="Заклинил клапан холодной воды, кв. 2806"),
+                Notify(target="resident", level="critical",
+                       message="Клапан воды на кухне не срабатывает. Сантехник уже вызван."),
+            ],
+        ),
+        Rule(
+            id="lift-emergency",
+            title="Авария лифта: вызвать лифтёров",
+            description="Правило УК уровня дома: лифт встал — консьерж проверяет кабину, лифтовая служба выезжает, жильцы предупреждены.",
+            scope="building", owner="uk", priority=90, status="active",
+            trigger=Trigger(device_id="lift-1", signal="emergency", op="eq", value=1),
+            actions=[
+                Notify(target="concierge", level="critical",
+                       message="Авария лифта в подъезде 1. Проверьте, нет ли людей в кабине."),
+                Dispatch(category="lift", note="Лифт подъезда 1 встал в аварии"),
+                Notify(target="resident", level="warning",
+                       message="Лифт в подъезде 1 временно не работает, специалисты уже едут."),
+            ],
+        ),
+        Rule(
+            id="barrier-jam",
+            title="Шлагбаум застрял: вызвать мастера",
+            description="Правило УК уровня дома: стрела застряла — консьерж следит за проездом, мастер по доступу выезжает.",
+            scope="building", owner="uk", priority=70, status="active",
+            trigger=Trigger(device_id="yard-barrier", signal="alarm", op="eq", value=1),
+            actions=[
+                Notify(target="concierge", level="warning", message="Шлагбаум во дворе застрял. Проверьте проезд."),
+                Dispatch(category="access", note="Застревание шлагбаума во дворе"),
+                Notify(target="resident", level="info",
+                       message="Шлагбаум во дворе временно не работает, мастер уже вызван."),
             ],
         ),
         Rule(
