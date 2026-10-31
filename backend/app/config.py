@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parent.parent.parent
 load_dotenv(ROOT / ".env")
 
+DATA_DIR = Path(os.environ.get("DATA_DIR", ROOT / "backend" / "data"))
 SECRETS_PATH = Path(os.environ.get("UJIN_SECRETS", ROOT / "secrets" / "ujin.json"))
 
 
