@@ -35,6 +35,26 @@ INPUTS: dict[str, dict[str, str]] = {
 }
 
 
+def _barrier_jam(self, on) -> None:
+    """Стрела не доезжает: закрылась на 85%, концевик «закрыто» не сработал (случай из жизни).
+
+    Код эмулятора организаторов не меняем: стрела остаётся в движении, и их же счётчик застревания через
+    пару тиков выставит «Авария: застревание». Снятие воздействия означает, что мастер починил стрелу.
+    """
+    if on:
+        self.set_value("state", 3)                         # закрывается и не доезжает
+        self._move_left = 10 ** 6
+        self._stuck_ticks = max(self._stuck_ticks, self.jam_limit - 2)
+    else:
+        self._move_left, self._stuck_ticks = -1, 0
+        self.set_value("alarm", 0)
+        self.set_value("state", 0)
+
+
+REGISTRY["barrier"].set_jam = _barrier_jam
+INPUTS["barrier"]["jam"] = "set_jam"
+
+
 class DeviceUnavailable(RuntimeError):
     """Устройство офлайн: команда не доставлена, движок повторит попытку."""
 
