@@ -129,10 +129,17 @@ export function validate(title: string, rows: SignalRow[]): string {
     const label = row.title.trim() ? `«${row.title.trim()}»` : 'Сигнал без названия'
     if (!row.title.trim()) return `${label}: впишите название`
     if (row.type === 'list' && rowLayout(row).length < 2) return `${label}: перечислите значения через запятую`
+    if (row.type === 'list') {
+      // «1=a, b» дал бы два значения с ключом 1: одно молча потерялось бы при сохранении.
+      const keys = rowLayout(row).map(([key]) => key)
+      if (new Set(keys).size !== keys.length) return `${label}: у значений повторяются номера`
+    }
     if (row.type === 'number') {
       for (const value of [row.min, row.max, row.def, row.alarm]) {
-        if (value.trim() !== '' && Number.isNaN(Number(value))) return `${label}: ожидается число`
+        if (value.trim() !== '' && !Number.isFinite(Number(value))) return `${label}: ожидается число`
       }
+      if (row.min.trim() !== '' && row.max.trim() !== '' && Number(row.min) > Number(row.max))
+        return `${label}: минимум больше максимума`
     }
   }
   return ''
@@ -190,15 +197,42 @@ export function behaviorFromSpec(b: Behavior, rows: SignalRow[]): BehaviorRow {
   return { ...base, source: uid(b.source), target: uid(b.target), op: b.op, sourceValue: str(b.limit), targetValue: str(b.value), elseValue: str(b.else_value) }
 }
 
+/** Пустое поле допустимо (значит 0 или «любое»), иначе — конечное число. */
+const numberOrEmpty = (raw: string) => raw.trim() === '' || Number.isFinite(Number(raw))
+
+/** Значение для сигнала: ключ списка или число у числового сигнала; текст — как есть. */
+function valueFits(raw: string, row: SignalRow | undefined): boolean {
+  if (raw.trim() === '' || !row) return true
+  const layout = rowLayout(row)
+  if (layout.length) return layout.some(([key]) => key === raw)
+  if (row.type === 'number') return Number.isFinite(Number(raw))
+  return true
+}
+
 export function validateBehaviors(behaviors: BehaviorRow[], rows: SignalRow[]): string {
-  const exists = (uid: number) => rows.some((row) => row.uid === uid)
+  const byUid = (uid: number) => rows.find((row) => row.uid === uid)
   for (const [index, b] of behaviors.entries()) {
     const label = `Поведение ${index + 1}`
-    if (!exists(b.source) || (b.type !== 'drift' && !exists(b.target))) return `${label}: выберите сигналы`
-    if (b.type === 'drift' && Number.isNaN(Number(b.step || 0))) return `${label}: шаг должен быть числом`
-    if (b.type === 'threshold' && (b.sourceValue.trim() === '' || Number.isNaN(Number(b.sourceValue))))
-      return `${label}: порог должен быть числом`
-    if (b.type === 'threshold' && b.targetValue.trim() === '') return `${label}: выберите, что выставить`
+    const source = byUid(b.source)
+    const target = byUid(b.target)
+    if (!source || (b.type !== 'drift' && !target)) return `${label}: выберите сигналы`
+    if (b.type === 'drift') {
+      // Тип строки могли сменить после выбора: дрейф возможен только у числа.
+      if (source.type !== 'number') return `${label}: меняться само может только числовое свойство`
+      if (!numberOrEmpty(b.step)) return `${label}: шаг должен быть числом`
+      if (!numberOrEmpty(b.noise)) return `${label}: шум должен быть числом`
+      continue
+    }
+    if (b.type === 'effect') {
+      if (!numberOrEmpty(b.delay) || Number(b.delay || 0) < 0) return `${label}: задержка — неотрицательное число`
+      if (!valueFits(b.sourceValue, source)) return `${label}: значение команды не подходит сигналу`
+      if (!valueFits(b.targetValue, target)) return `${label}: результат не подходит сигналу`
+      continue
+    }
+    if (source.type !== 'number') return `${label}: порог ставится только на числовое свойство`
+    if (b.sourceValue.trim() === '' || !Number.isFinite(Number(b.sourceValue))) return `${label}: порог должен быть числом`
+    if (b.targetValue.trim() === '') return `${label}: выберите, что выставить`
+    if (!valueFits(b.targetValue, target) || !valueFits(b.elseValue, target)) return `${label}: значение не подходит сигналу`
   }
   return ''
 }

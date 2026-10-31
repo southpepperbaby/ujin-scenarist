@@ -6,7 +6,7 @@ import type { Device } from '../api'
  */
 export type Complex = { id: string; title: string; flats: string[] }
 
-export const COMPLEXES: Complex[] = [{ id: 'severny-1', title: 'ЖК «Северный», корп. 1', flats: ['2806'] }]
+export const COMPLEXES: [Complex, ...Complex[]] = [{ id: 'severny-1', title: 'ЖК «Северный», корп. 1', flats: ['2806'] }]
 
 /** Выбор квартиры: все устройства дома, одна квартира или только общедомовое. */
 export type FlatChoice = 'all' | 'building' | `flat:${string}`

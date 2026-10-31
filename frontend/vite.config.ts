@@ -1,14 +1,18 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-export default defineConfig({
-  plugins: [react(), tailwindcss()],
-  server: {
-    port: 5173,
-    proxy: {
-      '/api': 'http://localhost:8000',
-      '/ws': { target: 'ws://localhost:8000', ws: true },
+// Адрес бэкенда для dev-прокси: по умолчанию локальный FastAPI, иначе VITE_BACKEND=http://host:port.
+export default defineConfig(({ mode }) => {
+  const backend = loadEnv(mode, process.cwd(), '').VITE_BACKEND || 'http://localhost:8000'
+  return {
+    plugins: [react(), tailwindcss()],
+    server: {
+      port: 5173,
+      proxy: {
+        '/api': backend,
+        '/ws': { target: backend.replace(/^http/, 'ws'), ws: true },
+      },
     },
-  },
+  }
 })

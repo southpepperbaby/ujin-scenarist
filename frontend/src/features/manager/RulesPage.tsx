@@ -1,99 +1,131 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { api, type Device, type Rule } from '../../api'
+import { useAction } from '../../shared/actions'
+import { setRuleEnabled } from '../../shared/rule/enable-rule'
 import { ruleLines } from '../../shared/rule/rule-lines'
+import { ruleStatus } from '../../shared/ticket-status'
+import { toastOk } from '../../shared/toast'
 import { Button } from '../../shared/ui/Button'
+import { ConfirmDeleteButton } from '../../shared/ui/DeleteButtons'
+import { EmptyState } from '../../shared/ui/EmptyState'
+import { SkeletonList } from '../../shared/ui/Skeleton'
+import { StatusPill } from '../../shared/ui/StatusPill'
 import { Toggle } from '../../shared/ui/Toggle'
 import { guard, useStore } from '../../store'
 import { GherkinCheck } from './GherkinCheck'
-import { RuleEditorModal, newRule } from './RuleEditorModal'
+import { newRule } from './rule-defaults'
+import { RuleEditorModal } from './RuleEditorModal'
 
 type Editing = { rule: Rule; isNew: boolean } | null
 
-export function RulesPage({ devices }: { devices: Device[] }) {
-  // У УК нет доступа к правилам жителей: в кабинете только правила дома.
-  const rules = useStore((state) => state.rules).filter((rule) => rule.owner === 'uk')
-  const [editing, setEditing] = useState<Editing>(null)
-  const [confirm, setConfirm] = useState('')
+function RuleCard({ rule, devices, onEdit }: { rule: Rule; devices: Device[]; onEdit: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const { when, conditions, actions } = ruleLines(rule, devices)
+  const status = ruleStatus(rule.status)
 
-  // Правила жителя остаются в его приложении: УК управляет только своими.
-  const sorted = rules.filter((rule) => rule.owner === 'uk').sort((a, b) => b.priority - a.priority)
-
-  const toggle = async (rule: Rule, enabled: boolean) => {
-    const out = await guard(api.updateRule({ ...rule, enabled, status: enabled ? 'active' : rule.status }))
-    if (out) await useStore.getState().reloadRules()
+  const toggle = async (next: boolean) => {
+    if (busy) return
+    setBusy(true)
+    await setRuleEnabled(rule, next)
+    setBusy(false)
   }
 
-  const remove = async (rule: Rule) => {
-    setConfirm('')
-    await guard(api.deleteRule(rule.id))
-    await useStore.getState().reloadRules()
+  const remove = async () => {
+    setBusy(true)
+    const done = await guard(api.deleteRule(rule.id).then(() => true))
+    if (done) toastOk(`Правило «${rule.title}» удалено`)
+    await guard(useStore.getState().reloadRules())
+    setBusy(false)
   }
 
   return (
+    <article className={`surface rounded-2xl p-4 transition ${rule.enabled ? '' : 'opacity-75'}`}>
+      <header className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">{rule.title}</p>
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-meta text-ink-mute">
+            <StatusPill label={status.label} className={status.className} />
+            приоритет {rule.priority}
+          </p>
+        </div>
+        <Toggle
+          checked={rule.enabled}
+          disabled={busy}
+          onChange={(next) => void toggle(next)}
+          label={`Правило «${rule.title}»`}
+        />
+      </header>
+      <dl className="mt-3 space-y-0.5 text-body text-ink-dim">
+        <div>
+          <dt className="inline font-medium text-ink">Когда </dt>
+          <dd className="inline">{when.join(' · ')}</dd>
+        </div>
+        {conditions.length > 0 && (
+          <div>
+            <dt className="inline font-medium text-ink">Если </dt>
+            <dd className="inline">{conditions.join(' · ')}</dd>
+          </div>
+        )}
+        <div>
+          <dt className="inline font-medium text-ink">То </dt>
+          <dd className="inline">{actions.join(' · ')}</dd>
+        </div>
+      </dl>
+      <footer className="mt-3 flex flex-wrap items-center gap-1">
+        <Button variant="secondary" onClick={onEdit} label={`Изменить «${rule.title}»`}>
+          Изменить
+        </Button>
+        <GherkinCheck rule={rule} />
+        <ConfirmDeleteButton onConfirm={() => void remove()} busy={busy} label={`Удалить «${rule.title}»`} />
+      </footer>
+    </article>
+  )
+}
+
+export function RulesPage({ devices }: { devices: Device[] }) {
+  const all = useStore((state) => state.rules)
+  const loaded = useStore((state) => state.loaded)
+  const [editing, setEditing] = useState<Editing>(null)
+
+  // Правила жителя остаются в его приложении: УК управляет только своими.
+  const sorted = all.filter((rule) => rule.owner === 'uk').sort((a, b) => b.priority - a.priority)
+  const create = useCallback(() => setEditing({ rule: newRule(useStore.getState().devices), isNew: true }), [])
+  useAction('new-rule', create)
+
+  return (
     <div className="space-y-4 px-7 py-6">
-      <div className="flex items-center gap-3">
-        <Button variant="primary" icon="plus" onClick={() => setEditing({ rule: newRule(devices), isNew: true })}>
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="primary" icon="plus" onClick={create}>
           Новое правило
         </Button>
-        <span className="text-[12px] text-ink-mute">Правила УК важнее правил жителей. Правила жителей видят только сами жители</span>
+        <span className="text-meta text-ink-mute">Правила УК важнее правил жителей. Правила жителей видят только сами жители.</span>
       </div>
 
-      {sorted.length === 0 && <p className="text-sm text-ink-mute">Правил пока нет. Создайте первое.</p>}
+      {!loaded && <SkeletonList count={4} className="h-40" />}
+
+      {loaded && sorted.length === 0 && (
+        <EmptyState
+          icon="sliders"
+          title="Правил дома пока нет"
+          hint="Например: «если в подвале протечка — перекрыть стояк и вызвать сантехника». Соберите в редакторе или словами в ассистенте."
+          action={
+            <Button variant="primary" icon="plus" onClick={create}>
+              Создать первое правило
+            </Button>
+          }
+          className="surface rounded-2xl"
+        />
+      )}
 
       <div className="grid gap-3 xl:grid-cols-2">
-        {sorted.map((rule) => {
-          const { when, conditions, actions } = ruleLines(rule, devices)
-          return (
-            <article
-              key={rule.id}
-              className={`rounded-2xl border border-line bg-surface p-4 ${rule.enabled ? '' : 'opacity-70'}`}
-            >
-              <header className="flex items-start gap-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-[14px] font-medium">{rule.title}</p>
-                  <p className="text-[12px] text-ink-mute">приоритет {rule.priority}</p>
-                </div>
-                <Toggle checked={rule.enabled} onChange={(next) => void toggle(rule, next)} label="Включить правило" />
-              </header>
-              <p className="mt-3 text-[13px] text-ink-dim">
-                <span className="font-medium text-ink">Когда</span> {when.join(' · ')}
-              </p>
-              {conditions.length > 0 && (
-                <p className="text-[13px] text-ink-dim">
-                  <span className="font-medium text-ink">Если</span> {conditions.join(' · ')}
-                </p>
-              )}
-              <p className="text-[13px] text-ink-dim">
-                <span className="font-medium text-ink">То</span> {actions.join(' · ')}
-              </p>
-              <footer className="mt-3 flex flex-wrap items-center gap-1">
-                <Button variant="secondary" onClick={() => setEditing({ rule, isNew: false })}>
-                  Изменить
-                </Button>
-                <GherkinCheck rule={rule} />
-                {confirm === rule.id ? (
-                  <Button variant="danger" onClick={() => void remove(rule)}>
-                    Да, удалить
-                  </Button>
-                ) : (
-                  <Button variant="ghost" className="text-sev-crit" onClick={() => setConfirm(rule.id)}>
-                    Удалить
-                  </Button>
-                )}
-              </footer>
-            </article>
-          )
-        })}
+        {sorted.map((rule) => (
+          <RuleCard key={rule.id} rule={rule} devices={devices} onEdit={() => setEditing({ rule, isNew: false })} />
+        ))}
       </div>
 
       {editing && (
-        <RuleEditorModal
-          key={editing.rule.id}
-          rule={editing.rule}
-          isNew={editing.isNew}
-          onClose={() => setEditing(null)}
-        />
+        <RuleEditorModal key={editing.rule.id} rule={editing.rule} isNew={editing.isNew} onClose={() => setEditing(null)} />
       )}
     </div>
   )

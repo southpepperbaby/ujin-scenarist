@@ -6,15 +6,15 @@ type CardProps = {
   onClick?: () => void
 }
 
-/** Базовая поверхность тёмной темы: приподнятый блок со скруглением и тонкой рамкой. */
+/** Плотная поверхность контента: приподнятый блок со скруглением и тонкой рамкой. */
 export function Card({ children, className = '', onClick }: CardProps) {
-  const interactive = onClick ? 'cursor-pointer transition hover:border-line-strong' : ''
-  return (
-    <div
-      onClick={onClick}
-      className={`rounded-2xl border border-line bg-surface ${interactive} ${className}`}
-    >
-      {children}
-    </div>
-  )
+  const base = `rounded-2xl border border-line bg-surface ${className}`
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={`${base} block w-full cursor-pointer text-left transition hover:border-line-strong`}>
+        {children}
+      </button>
+    )
+  }
+  return <div className={base}>{children}</div>
 }
