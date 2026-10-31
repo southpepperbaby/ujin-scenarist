@@ -1,0 +1,43 @@
+name: Deploy to Captain's Server
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            cd /opt/ujin-scenarist
+            git pull origin main
+            
+            # Создаём .env если его нет
+            if [ ! -f .env ]; then
+              cat > .env <<EOF
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            UJIN_API_URL=${{ secrets.UJIN_API_URL }}
+            UJIN_UST_RES1=${{ secrets.UJIN_UST_RES1 }}
+            UJIN_EMPLOYEE_LOGIN=${{ secrets.UJIN_EMPLOYEE_LOGIN }}
+            UJIN_EMPLOYEE_PASSWORD=${{ secrets.UJIN_EMPLOYEE_PASSWORD }}
+            EOF
+            fi
+            
+            # Деплой
+            docker compose down
+            docker compose build
+            docker compose up -d
+            docker image prune -f
+            
+            # Проверяем что всё работает
+            sleep 10
+            docker compose ps
