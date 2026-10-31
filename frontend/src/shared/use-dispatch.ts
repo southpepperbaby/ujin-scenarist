@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
   CATEGORY_TITLES,
@@ -29,8 +29,12 @@ export function useDispatchData(demo: boolean, role: Role = 'uk'): DispatchData 
   const [contractors, setContractors] = useState<Contractor[]>(demo ? FALLBACK_CONTRACTORS : [])
   const [categories, setCategories] = useState<Record<string, string>>(CATEGORY_TITLES)
 
-  const events = useStore((state) => state.events)
-  const lastDispatchSeq = events.filter((e) => e.kind === 'incident' || e.kind === 'ticket').at(-1)?.seq ?? 0
+  // Подписываемся на число (seq последнего события), а не на весь массив: лишние рендеры не нужны.
+  const lastDispatchSeq = useStore(
+    (state) => state.events.filter((e) => e.kind === 'incident' || e.kind === 'ticket').at(-1)?.seq ?? 0,
+  )
+
+  const requestSeq = useRef(0)
 
   const reload = useCallback(() => {
     if (demo) {
@@ -40,8 +44,10 @@ export function useDispatchData(demo: boolean, role: Role = 'uk'): DispatchData 
       setContractors(FALLBACK_CONTRACTORS)
       return
     }
+    const seq = ++requestSeq.current
     void Promise.all([api.incidents(role), api.tickets(role), api.contractors(), api.dictionaries()])
       .then(([nextIncidents, nextTickets, nextContractors, dictionaries]) => {
+        if (seq !== requestSeq.current) return // пришёл ответ на устаревший запрос
         setIncidents(nextIncidents)
         setTickets(nextTickets)
         setContractors(nextContractors)
@@ -50,7 +56,17 @@ export function useDispatchData(demo: boolean, role: Role = 'uk'): DispatchData 
       .catch(() => undefined)
   }, [demo, role])
 
-  useEffect(reload, [reload, lastDispatchSeq])
+  // Первый вызов сразу, дальше всплески событий схлопываем в один запрос.
+  const first = useRef(true)
+  useEffect(() => {
+    if (first.current) {
+      first.current = false
+      reload()
+      return
+    }
+    const timer = setTimeout(reload, 150)
+    return () => clearTimeout(timer)
+  }, [reload, lastDispatchSeq])
 
   return { incidents, tickets, contractors, categories, reload }
 }

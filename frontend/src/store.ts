@@ -15,6 +15,10 @@ type State = {
   setError: (e: string | null) => void
 }
 
+// Номер последнего запущенного запроса устройств: ответ более старого запроса не должен затереть свежий.
+let devicesSeq = 0
+let devicesTimer: ReturnType<typeof setTimeout> | undefined
+
 export const useStore = create<State>((set, get) => ({
   devices: [],
   families: [],
@@ -24,6 +28,7 @@ export const useStore = create<State>((set, get) => ({
   error: null,
 
   load: async () => {
+    const seq = ++devicesSeq
     const [devices, families, rules, events, notifications] = await Promise.all([
       api.devices(),
       api.families(),
@@ -31,10 +36,15 @@ export const useStore = create<State>((set, get) => ({
       api.events(150),
       api.notifications(),
     ])
-    set({ devices, families, rules, events, notifications })
+    // Устройства применяем только если после этого не стартовал более новый запрос.
+    set(seq === devicesSeq ? { devices, families, rules, events, notifications } : { families, rules, events, notifications })
   },
 
-  reloadDevices: async () => set({ devices: await api.devices() }),
+  reloadDevices: async () => {
+    const seq = ++devicesSeq
+    const devices = await api.devices()
+    if (seq === devicesSeq) set({ devices })
+  },
   reloadRules: async () => set({ rules: await api.rules() }),
   setError: (error) => set({ error }),
 
@@ -50,11 +60,15 @@ export const useStore = create<State>((set, get) => ({
           ),
         }))
       }
-      if (e.kind === 'device') get().reloadDevices()
+      if (e.kind === 'device') {
+        // Всплеск device-событий схлопываем в один запрос.
+        clearTimeout(devicesTimer)
+        devicesTimer = setTimeout(() => void guard(get().reloadDevices()), 150)
+      }
       if (e.kind === 'notify') {
         set((s) => ({ notifications: [...s.notifications.slice(-199), e as unknown as Notification] }))
       }
-    }),
+    }, () => void guard(get().load())),
 }))
 
 export function deviceById(devices: Device[], id: string) {
