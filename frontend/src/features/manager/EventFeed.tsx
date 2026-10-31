@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react'
+import { memo, useMemo, useRef, useState } from 'react'
 
 import type { BusEvent, Device } from '../../api'
 import { formatClockSeconds } from '../../shared/format'
 import { showValue } from '../../shared/device-values'
+import { Icon } from '../../shared/ui/Icon'
 
 const KIND_COLOR: Record<string, string> = {
   log: 'text-ink-mute',
@@ -17,17 +18,23 @@ const KIND_COLOR: Record<string, string> = {
 
 /** Сколько пикселей от верха ещё считается «смотрю вживую». */
 const LIVE_EDGE = 8
+/** Сколько строк плоской ленты и сколько карточек цепочек рисуем. */
+const SHOWN_ROWS = 200
+const SHOWN_CHAINS = 60
 
 /** События одной цепочки идут друг за другом не дольше этой паузы: протечка → правило → клапан → заявка. */
 const CHAIN_GAP_S = 2
 
-function label(event: BusEvent, devices: Device[]): string {
-  const device = devices.find((item) => item.id === event.device_id)
+function label(event: BusEvent, byId: Map<string, Device>): string {
+  const device = event.device_id ? byId.get(event.device_id) : undefined
   if (event.kind === 'signal') {
     const signal = device?.signals.find((item) => item.name === event.signal)
-    const show = (value: unknown) =>
-      signal ? showValue({ value: value as number, layout: signal.layout, measure: signal.measure }) : String(value)
-    return `${device?.title ?? event.device_id} · ${event.title ?? event.signal}: ${show(event.prev)} → ${show(event.value)}`
+    const show = (value: unknown) => {
+      if (value === undefined || value === null) return '—'
+      return signal ? showValue({ value: value as number, layout: signal.layout, measure: signal.measure }) : String(value)
+    }
+    const head = `${device?.title ?? event.device_id} · ${event.title ?? event.signal}`
+    return event.prev === undefined ? `${head}: ${show(event.value)}` : `${head}: ${show(event.prev)} → ${show(event.value)}`
   }
   if (event.kind === 'notify') {
     return `${event.target === 'concierge' ? 'Консьержу' : 'Жителю'}: ${event.message}`
@@ -45,7 +52,8 @@ function chains(events: BusEvent[]): BusEvent[][] {
   const out: BusEvent[][] = []
   for (const event of events) {
     const last = out.at(-1)
-    if (last && event.ts - last[last.length - 1].ts <= CHAIN_GAP_S) last.push(event)
+    const tail = last?.at(-1)
+    if (last && tail && event.ts - tail.ts <= CHAIN_GAP_S) last.push(event)
     else out.push([event])
   }
   return out.map((chain) => {
@@ -74,26 +82,36 @@ type EventFeedProps = {
  * Живая лента шины, новые сверху. По умолчанию события, идущие подряд, склеены в карточку цепочки:
  * «протечка → правило → клапан закрыт → консьержу → заявка». С телеметрией лента плоская.
  * Стоит отлистать вниз или нажать паузу — лента замирает; новые копятся и возвращаются по кнопке.
+ * Новая карточка въезжает сама (.enter), цепочка с инцидентом подсвечивается один раз.
  */
-export function EventFeed({ events, telemetry, devices }: EventFeedProps) {
+export const EventFeed = memo(function EventFeed({ events, telemetry, devices }: EventFeedProps) {
   const listRef = useRef<HTMLDivElement>(null)
   // Снимок на момент паузы: строки не уезжают и не вытесняются, пока их читают.
   const [frozen, setFrozen] = useState<BusEvent[] | null>(null)
   const [withTelemetry, setWithTelemetry] = useState(false)
   const [deviceId, setDeviceId] = useState('')
 
-  const live = withTelemetry ? [...events, ...telemetry].sort((a, b) => a.seq - b.seq) : events
-  const shown = (frozen ?? live).filter((event) => !noise(event))
+  const live = useMemo(
+    () => (withTelemetry ? [...events, ...telemetry].sort((a, b) => a.seq - b.seq) : events),
+    [withTelemetry, events, telemetry],
+  )
+  const byId = useMemo(() => new Map(devices.map((device) => [device.id, device])), [devices])
+  const source = frozen ?? live
+  const shown = useMemo(() => source.filter((event) => !noise(event)), [source])
   const frozenTop = frozen?.at(-1)?.seq ?? 0
   const pending = frozen ? live.filter((event) => event.seq > frozenTop && !noise(event)).length : 0
 
-  const mine = (event: BusEvent) => !deviceId || event.device_id === deviceId
-  const groups = withTelemetry
-    ? []
-    : chains(shown)
+  const rows = useMemo(() => {
+    const mine = (event: BusEvent) => !deviceId || event.device_id === deviceId
+    if (withTelemetry) return { flat: shown.filter(mine).slice(-SHOWN_ROWS).reverse(), groups: [] }
+    return {
+      flat: [],
+      groups: chains(shown)
         .filter((chain) => chain.some(mine))
-        .reverse()
-        .slice(0, 60)
+        .slice(-SHOWN_CHAINS)
+        .reverse(),
+    }
+  }, [shown, withTelemetry, deviceId])
 
   const freeze = () => setFrozen((current) => current ?? live)
   const goLive = () => {
@@ -103,13 +121,15 @@ export function EventFeed({ events, telemetry, devices }: EventFeedProps) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-2 text-[12px]">
+      <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-2 text-meta">
         <button
           type="button"
           onClick={frozen === null ? freeze : goLive}
-          className="rounded-lg border border-line px-2.5 py-1 font-medium text-ink-dim transition hover:text-ink"
+          aria-pressed={frozen !== null}
+          className="flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1 font-medium text-ink-dim transition hover:text-ink"
         >
-          {frozen === null ? 'Пауза' : 'Продолжить'}
+          {frozen === null && <span className="size-1.5 animate-pulse rounded-full bg-ok" aria-hidden="true" />}
+          {frozen === null ? 'Вживую · пауза' : 'Продолжить'}
         </button>
         <label className="flex cursor-pointer items-center gap-1.5 text-ink-mute">
           <input
@@ -143,53 +163,64 @@ export function EventFeed({ events, telemetry, devices }: EventFeedProps) {
           <button
             type="button"
             onClick={goLive}
-            className="absolute top-2 left-1/2 z-10 -translate-x-1/2 rounded-full bg-accent px-3 py-1 text-[12px] font-medium text-accent-ink shadow-md"
+            className="enter absolute top-2 left-1/2 z-10 flex -translate-x-1/2 items-center gap-1 rounded-full bg-accent px-3 py-1 text-meta font-medium text-accent-ink shadow-md"
           >
-            ↑ {pending} новых
+            <Icon name="arrowUp" size={13} />
+            {pending} новых
           </button>
         )}
         <div
           ref={listRef}
+          tabIndex={0}
+          aria-label="Лента событий шины"
           onScroll={(event) => {
             if (event.currentTarget.scrollTop > LIVE_EDGE) freeze()
           }}
-          className="scroll-slim h-full overflow-y-auto px-4 py-3"
+          className="scroll-slim h-full overflow-y-auto px-4 py-3 outline-none"
         >
           {withTelemetry ? (
-            <ul className="space-y-1 font-mono text-[12px]">
-              {shown
-                .filter(mine)
-                .reverse()
-                .slice(0, 200)
-                .map((event) => (
-                  <li key={event.seq} className={KIND_COLOR[event.kind] ?? 'text-ink-dim'}>
-                    <span className="text-ink-mute">{formatClockSeconds(event.ts)} </span>
-                    {label(event, devices)}
-                  </li>
-                ))}
-            </ul>
-          ) : (
-            <ul className="space-y-2">
-              {groups.map((chain) => (
-                <li key={chain[0].seq} className={`rounded-xl border px-3 py-2.5 text-[12.5px] leading-snug ${tone(chain)}`}>
-                  <p className="mb-1 text-[11px] text-ink-mute">{formatClockSeconds(chain[0].ts)}</p>
-                  <ol className="space-y-0.5">
-                    {chain.map((event, index) => (
-                      <li key={event.seq} className={index === 0 ? 'font-medium text-ink' : (KIND_COLOR[event.kind] ?? 'text-ink-dim')}>
-                        {index > 0 && <span className="text-ink-mute">→ </span>}
-                        {label(event, devices)}
-                      </li>
-                    ))}
-                  </ol>
+            <ul className="space-y-1 font-mono text-meta">
+              {rows.flat.map((event) => (
+                <li key={event.seq} className={`enter ${KIND_COLOR[event.kind] ?? 'text-ink-dim'}`}>
+                  <span className="tabular text-ink-mute">{formatClockSeconds(event.ts)} </span>
+                  {label(event, byId)}
                 </li>
               ))}
             </ul>
+          ) : (
+            <ul className="space-y-2">
+              {rows.groups.map((chain) => {
+                const head = chain[0]
+                if (!head) return null
+                return (
+                  <li
+                    key={head.seq}
+                    className={`enter rounded-xl border px-3 py-2.5 text-body leading-snug ${tone(chain)} ${
+                      chain.some((e) => e.kind === 'incident') ? 'animate-flash' : ''
+                    }`}
+                  >
+                    <p className="tabular mb-1 text-caption text-ink-mute">{formatClockSeconds(head.ts)}</p>
+                    <ol className="space-y-0.5">
+                      {chain.map((event, index) => (
+                        <li
+                          key={event.seq}
+                          className={index === 0 ? 'font-medium text-ink' : (KIND_COLOR[event.kind] ?? 'text-ink-dim')}
+                        >
+                          {index > 0 && <span className="text-ink-mute">→ </span>}
+                          {label(event, byId)}
+                        </li>
+                      ))}
+                    </ol>
+                  </li>
+                )
+              })}
+            </ul>
           )}
           {shown.length === 0 && telemetry.length === 0 && (
-            <p className="text-[12px] text-ink-mute">Шина молчит: запустите бэкенд, чтобы увидеть живые события.</p>
+            <p className="text-meta text-ink-mute">Шина молчит: запустите бэкенд, чтобы увидеть живые события.</p>
           )}
           {shown.length === 0 && telemetry.length > 0 && (
-            <p className="text-[12px] text-ink-mute">
+            <p className="text-meta text-ink-mute">
               Пока только телеметрия датчиков. Подайте воздействие на устройство слева, например «wet ▲» у датчика
               протечки, и цепочка появится здесь.
             </p>
@@ -198,4 +229,4 @@ export function EventFeed({ events, telemetry, devices }: EventFeedProps) {
       </div>
     </div>
   )
-}
+})

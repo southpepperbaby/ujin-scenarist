@@ -1,13 +1,13 @@
-import { navigate } from '../../app/routing'
+import { href, inSection } from '../../app/routing'
 import { Icon, type IconName } from '../../shared/ui/Icon'
 
-type Tab = { to: string; label: string; icon: IconName; match: string }
+type Tab = { to: string; label: string; icon: IconName }
 
 const TABS: Tab[] = [
-  { to: '/resident', label: 'Дом', icon: 'home', match: '/resident' },
-  { to: '/resident/scenarios', label: 'Сценарии', icon: 'bolt', match: '/resident/scenarios' },
-  { to: '/resident/alerts', label: 'События', icon: 'bell', match: '/resident/alerts' },
-  { to: '/resident/profile', label: 'Профиль', icon: 'user', match: '/resident/profile' },
+  { to: '/resident', label: 'Дом', icon: 'home' },
+  { to: '/resident/scenarios', label: 'Сценарии', icon: 'bolt' },
+  { to: '/resident/alerts', label: 'События', icon: 'bell' },
+  { to: '/resident/profile', label: 'Профиль', icon: 'user' },
 ]
 
 type TabBarProps = {
@@ -16,32 +16,36 @@ type TabBarProps = {
 }
 
 function isActive(path: string, tab: Tab): boolean {
-  if (tab.match === '/resident') return path === '/resident'
-  return path.startsWith(tab.match)
+  if (tab.to === '/resident') return path === '/resident'
+  return inSection(path, tab.to)
 }
 
 export function TabBar({ path, unread }: TabBarProps) {
   return (
-    <nav className="glass glass-strong flex shrink-0 rounded-none border-x-0 border-b-0 px-2 pt-2 pb-3">
+    <nav aria-label="Разделы" className="glass glass-strong flex shrink-0 rounded-none border-x-0 border-b-0 px-2 pt-2 pb-3">
       {TABS.map((tab) => {
         const active = isActive(path, tab)
+        const badge = tab.icon === 'bell' && unread > 0
         return (
-          <button
+          <a
             key={tab.to}
-            type="button"
-            onClick={() => navigate(tab.to)}
-            className={`press relative flex flex-1 flex-col items-center gap-1 rounded-xl py-1.5 text-[11px] font-medium transition ${
+            href={href(tab.to)}
+            aria-current={active ? 'page' : undefined}
+            className={`press relative flex flex-1 flex-col items-center gap-1 rounded-xl py-1.5 text-caption font-medium transition ${
               active ? 'text-accent' : 'text-ink-mute hover:text-ink-dim'
             }`}
           >
-            <Icon name={tab.icon} size={22} />
+            <span className={`flex h-7 w-12 items-center justify-center rounded-full transition ${active ? 'bg-accent-soft' : ''}`}>
+              <Icon name={tab.icon} size={22} />
+            </span>
             {tab.label}
-            {tab.icon === 'bell' && unread > 0 && (
-              <span className="absolute top-0.5 right-1/2 translate-x-4 rounded-full bg-sev-crit px-1.5 text-[10px] font-semibold text-white">
-                {unread}
+            {badge && (
+              <span className="tabular absolute top-0.5 right-1/2 translate-x-5 rounded-full bg-sev-crit px-1.5 text-micro font-semibold text-white">
+                {unread > 99 ? '99+' : unread}
+                <span className="sr-only"> непрочитанных</span>
               </span>
             )}
-          </button>
+          </a>
         )
       })}
     </nav>

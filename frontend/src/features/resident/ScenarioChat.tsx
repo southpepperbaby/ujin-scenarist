@@ -2,7 +2,8 @@ import { useState } from 'react'
 
 import type { Confirmed } from '../../api'
 
-import { navigate } from '../../app/routing'
+import { navigate, scenarioPath } from '../../app/routing'
+import { Pipeline } from '../../shared/rule/Pipeline'
 import { CheckResult } from '../../shared/rule/CheckResult'
 import { ConfirmCard } from '../../shared/rule/ConfirmCard'
 import { useRuleChat } from '../../shared/rule/use-rule-chat'
@@ -44,8 +45,10 @@ export function ScenarioChat() {
         </Bubble>
       ))}
 
+      <Pipeline busy={busy} result={result} checked={checked} />
+
       {busy && (
-        <div className="glass inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-ink-dim">
+        <div className="glass inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-ink-dim" role="status">
           <TypingDots />
         </div>
       )}
@@ -55,7 +58,7 @@ export function ScenarioChat() {
       {result?.rule && <ConfirmCard result={result} busy={busy} onConfirm={() => void onConfirm()} onRefine={refine} />}
 
       {previous && !result && !busy && (
-        <p className="text-[12px] text-ink-mute">
+        <p className="text-meta text-ink-mute">
           Напишите, что уточнить, или{' '}
           <button type="button" onClick={() => { reset(); setDone(null); setChecked(null) }} className="underline hover:text-ink">
             начните заново
@@ -71,8 +74,8 @@ export function ScenarioChat() {
             checked.rule && (
               <button
                 type="button"
-                onClick={() => navigate(`/resident/scenarios/${checked.rule?.id}`)}
-                className="text-[13px] text-accent underline"
+                onClick={() => checked.rule && navigate(scenarioPath(checked.rule.id))}
+                className="text-body text-accent underline"
               >
                 Открыть правило
               </button>
@@ -81,10 +84,10 @@ export function ScenarioChat() {
         />
       )}
 
-      {done && <p className="rounded-xl border border-ok/30 bg-ok-soft px-3 py-2 text-[13px] text-ok">{done}</p>}
+      {done && <p className="rounded-xl border border-ok/30 bg-ok-soft px-3 py-2 text-body text-ok">{done}</p>}
 
       {error && (
-        <p className="rounded-xl border border-sev-crit/30 bg-sev-crit-soft px-3 py-2 text-[13px] text-sev-crit">
+        <p role="alert" className="rounded-xl border border-sev-crit/30 bg-sev-crit-soft px-3 py-2 text-body text-sev-crit">
           {error}
         </p>
       )}
@@ -94,20 +97,22 @@ export function ScenarioChat() {
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
+            // Во время набора через IME Enter подтверждает слово, а не отправляет сообщение.
+            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault()
               void onCompile()
             }
           }}
           rows={2}
+          aria-label="Опишите сценарий словами"
           placeholder={previous ? 'Что уточнить? Например: только ночью' : 'Опишите правило словами, я соберу и проверю'}
-          className="scroll-slim glass flex-1 resize-none rounded-2xl px-3.5 py-2.5 text-[14px] text-ink outline-none placeholder:text-ink-mute focus:border-accent/50"
+          className="scroll-slim glass flex-1 resize-none rounded-2xl px-3.5 py-2.5 text-sm text-ink outline-none placeholder:text-ink-mute focus:border-accent/60 focus:ring-2 focus:ring-accent/25"
         />
         <button
           type="button"
           onClick={() => void onCompile()}
-          disabled={busy}
-          className="press flex size-11 shrink-0 items-center justify-center rounded-2xl bg-accent text-accent-ink transition hover:brightness-110"
+          disabled={busy || text.trim() === ''}
+          className="press flex size-11 shrink-0 items-center justify-center rounded-2xl bg-accent text-accent-ink transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
           aria-label="Разобрать правило"
         >
           <Icon name="arrowRight" size={20} />

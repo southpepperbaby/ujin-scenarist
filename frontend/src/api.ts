@@ -200,8 +200,8 @@ export type Dictionaries = { categories: Record<string, string>; statuses: Recor
 
 
 export type RunAction = {
-  type: 'set_signal' | 'notify' | 'dispatch' | string
-  status: 'ok' | 'error' | 'conflict' | string
+  type: 'set_signal' | 'notify' | 'dispatch' | (string & {})
+  status: 'ok' | 'error' | 'conflict' | (string & {})
   device_id?: string
   signal?: string
   value?: unknown
@@ -239,11 +239,25 @@ function readableDetail(detail: unknown): string {
   return JSON.stringify(detail)
 }
 
+/** Запрос, который завис на прокси, не должен держать экран пустым бесконечно. */
+const REQUEST_TIMEOUT_MS = 10_000
+/** HTML-страница ошибки прокси (502) целиком в тосте не нужна. */
+const DETAIL_MAX = 240
+
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  })
+  let res: Response
+  try {
+    res = await fetch(url, {
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      ...init,
+    })
+  } catch (e) {
+    const name = (e as Error).name
+    if (name === 'TimeoutError') throw new Error('Сервер не ответил за 10 секунд')
+    if (name === 'AbortError') throw e
+    throw new Error('Нет связи с сервером')
+  }
   if (!res.ok) {
     let detail: unknown = await res.text()
     try {
@@ -251,13 +265,16 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
     } catch {
       /* текст как есть */
     }
-    throw new Error(readableDetail(detail))
+    let text = readableDetail(detail)
+    if (/^\s*</.test(text)) text = `Ошибка сервера ${res.status}`
+    throw new Error(text.length > DETAIL_MAX ? `${text.slice(0, DETAIL_MAX)}…` : text)
   }
   if (res.status === 204) return undefined as T
   return res.json()
 }
 
 const body = (data: unknown) => ({ body: JSON.stringify(data) })
+const enc = encodeURIComponent
 
 export type Role = 'resident' | 'uk'
 
@@ -301,37 +318,37 @@ export const api = {
   createDevice: (d: { family: string; title?: string; room?: string; scope?: string }) =>
     json<Device>('/api/devices', { method: 'POST', ...body(d) }),
   patchDevice: (id: string, patch: Partial<Pick<Device, 'title' | 'room' | 'scope' | 'online'>>) =>
-    json<Device>(`/api/devices/${id}`, { method: 'PATCH', ...body(patch) }),
-  deleteDevice: (id: string) => json<void>(`/api/devices/${id}`, { method: 'DELETE' }),
+    json<Device>(`/api/devices/${enc(id)}`, { method: 'PATCH', ...body(patch) }),
+  deleteDevice: (id: string) => json<void>(`/api/devices/${enc(id)}`, { method: 'DELETE' }),
 
   createType: (spec: DeviceTypeSpec) => json<Family>('/api/device-types', { method: 'POST', ...body(spec) }),
   updateType: (spec: DeviceTypeSpec) =>
-    json<Family>(`/api/device-types/${spec.family}`, { method: 'PUT', ...body(spec) }),
-  deleteType: (family: string) => json<void>(`/api/device-types/${family}`, { method: 'DELETE' }),
+    json<Family>(`/api/device-types/${enc(spec.family)}`, { method: 'PUT', ...body(spec) }),
+  deleteType: (family: string) => json<void>(`/api/device-types/${enc(family)}`, { method: 'DELETE' }),
   command: (id: string, signal: string, value: unknown) =>
-    json(`/api/devices/${id}/command`, { method: 'POST', ...body({ signal, value }) }),
+    json(`/api/devices/${enc(id)}/command`, { method: 'POST', ...body({ signal, value }) }),
   inject: (id: string, input: string, value: unknown) =>
-    json(`/api/devices/${id}/inject`, { method: 'POST', ...body({ input, value }) }),
+    json(`/api/devices/${enc(id)}/inject`, { method: 'POST', ...body({ input, value }) }),
 
   rules: () => json<Rule[]>('/api/rules'),
   createRule: (r: Rule) => json<Rule>('/api/rules', { method: 'POST', ...body(r) }),
-  updateRule: (r: Rule) => json<Rule>(`/api/rules/${r.id}`, { method: 'PUT', ...body(r) }),
-  deleteRule: (id: string) => json(`/api/rules/${id}`, { method: 'DELETE' }),
-  runRule: (id: string) => json(`/api/rules/${id}/run`, { method: 'POST' }),
+  updateRule: (r: Rule) => json<Rule>(`/api/rules/${enc(r.id)}`, { method: 'PUT', ...body(r) }),
+  deleteRule: (id: string) => json(`/api/rules/${enc(id)}`, { method: 'DELETE' }),
+  runRule: (id: string) => json(`/api/rules/${enc(id)}/run`, { method: 'POST' }),
 
   compile: (text: string, role: Role, previous?: string) =>
     json<Compiled>('/api/nl/compile', { method: 'POST', ...body({ text, role, previous }) }),
   confirm: (rule: Rule, role: Role) => json<Confirmed>('/api/nl/confirm', { method: 'POST', ...body({ rule, role }) }),
 
   notifications: (target?: string) =>
-    json<Notification[]>(`/api/notifications?limit=100${target ? `&target=${target}` : ''}`),
+    json<Notification[]>(`/api/notifications?limit=100${target ? `&target=${enc(target)}` : ''}`),
   events: (limit = 100) => json<BusEvent[]>(`/api/events?limit=${limit}`),
 
   incidents: (role: Role, limit = 50) => json<Incident[]>(`/api/incidents?limit=${limit}&role=${role}`),
   tickets: (role: Role) => json<Ticket[]>(`/api/tickets?role=${role}`),
   createTicket: (draft: TicketDraft) => json<Ticket>('/api/tickets', { method: 'POST', ...body(draft) }),
   moveTicket: (id: string, status: TicketStatus, actor: string, note = '') =>
-    json<Ticket>(`/api/tickets/${id}/transition`, { method: 'POST', ...body({ status, actor, note }) }),
+    json<Ticket>(`/api/tickets/${enc(id)}/transition`, { method: 'POST', ...body({ status, actor, note }) }),
   contractors: () => json<Contractor[]>('/api/contractors'),
   dictionaries: () => json<Dictionaries>('/api/dictionaries'),
 
@@ -339,38 +356,51 @@ export const api = {
     json<SimulateReport>('/api/simulate', { method: 'POST', ...body({ rule, ticks }) }),
   policy: () => json<Policy>('/api/policy'),
   setPolicy: (policy: Policy) => json<Policy>('/api/policy', { method: 'PUT', ...body(policy) }),
-  explainRule: (id: string) => json<{ text: string }>(`/api/rules/${id}/explain`),
+  explainRule: (id: string) => json<{ text: string }>(`/api/rules/${enc(id)}/explain`),
   gherkin: (rule: Rule) => json<GherkinReport>('/api/gherkin/run', { method: 'POST', ...body({ rule }) }),
 }
 
-/** onReopen вызывается при каждом переподключении, кроме первого: данные за время обрыва надо подтянуть заново. */
+const RECONNECT_MIN_MS = 1000
+const RECONNECT_MAX_MS = 15_000
+
+/**
+ * Шина событий по WebSocket с переподключением и экспоненциальной паузой.
+ * onReopen вызывается при каждом переподключении, кроме первого: данные за время обрыва надо подтянуть заново.
+ */
 export function openEvents(onEvent: (e: BusEvent) => void, onReopen?: () => void): () => void {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   let ws: WebSocket | null = null
+  let timer: ReturnType<typeof setTimeout> | undefined
   let closed = false
   let opened = false
+  let delay = RECONNECT_MIN_MS
   const connect = () => {
+    if (closed) return
     ws = new WebSocket(`${proto}://${location.host}/ws`)
     ws.onopen = () => {
+      delay = RECONNECT_MIN_MS
       if (opened) onReopen?.()
       opened = true
     }
     ws.onmessage = (m) => {
-      let event: BusEvent
+      let event: unknown
       try {
         event = JSON.parse(m.data)
       } catch {
         return // битый кадр пропускаем
       }
-      onEvent(event)
+      if (event && typeof event === 'object' && 'kind' in event) onEvent(event as BusEvent)
     }
     ws.onclose = () => {
-      if (!closed) setTimeout(connect, 1000)
+      if (closed) return
+      timer = setTimeout(connect, delay)
+      delay = Math.min(delay * 2, RECONNECT_MAX_MS)
     }
   }
   connect()
   return () => {
     closed = true
+    clearTimeout(timer)
     ws?.close()
   }
 }

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { api, type Compiled, type Confirmed, type Role } from '../../api'
-import { useStore } from '../../store'
+import { guard, useStore } from '../../store'
 
 /**
  * Общий поток чата правил для жителя и УК: просьба → правило по схеме → карточка пересказа →
@@ -52,7 +52,8 @@ export function useRuleChat(role: Role) {
     if (!res) return null
     setResult(null)
     setPrevious(undefined)
-    if (res.kind === 'rule') await reloadRules()
+    // Правило уже создано: упавшее обновление списка не должно терять результат подтверждения.
+    if (res.kind === 'rule') await guard(reloadRules())
     return res
   }
 

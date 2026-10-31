@@ -11,7 +11,7 @@ export function ScenariosScreen() {
 
       {rules.length > 0 && (
         <section className="space-y-2.5">
-          <h2 className="text-[11px] font-semibold tracking-widest text-ink-mute">МОИ ПРАВИЛА</h2>
+          <h2 className="text-caption font-semibold tracking-widest text-ink-mute">МОИ ПРАВИЛА</h2>
           {rules.map((rule, index) => (
             <ScenarioCard key={rule.id} rule={rule} index={index} />
           ))}
@@ -19,7 +19,7 @@ export function ScenariosScreen() {
       )}
 
       <section className="space-y-2.5">
-        <h2 className="text-[11px] font-semibold tracking-widest text-ink-mute">НОВОЕ ПРАВИЛО</h2>
+        <h2 className="text-caption font-semibold tracking-widest text-ink-mute">НОВОЕ ПРАВИЛО</h2>
         <ScenarioChat />
       </section>
     </div>

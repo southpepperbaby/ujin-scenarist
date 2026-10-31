@@ -18,12 +18,12 @@ export function CheckResult({ res, action }: { res: Confirmed; action?: ReactNod
   const enabled = res.rule?.enabled ?? false
   const lintError = res.lint?.issues.find((issue) => issue.level === 'error')?.message
   return (
-    <Glass className="rise space-y-3 p-4">
-      <p className="text-[11px] font-semibold tracking-widest text-ink-mute">ПРОВЕРКА НА КОПИИ ДОМА</p>
-      <p className="text-[14px] leading-relaxed text-ink">{res.explanation}</p>
+    <Glass tone="solid" className="rise space-y-3 p-4">
+      <p className="text-caption font-semibold tracking-widest text-ink-mute">ПРОВЕРКА НА КОПИИ ДОМА</p>
+      <p className="text-sm leading-relaxed text-ink">{res.explanation}</p>
 
       {lintError && (
-        <p className="flex gap-2 text-[13px] text-sev-crit">
+        <p className="flex gap-2 text-body text-sev-crit">
           <Icon name="close" size={15} className="mt-0.5 shrink-0" />
           {lintError}
         </p>
@@ -31,8 +31,8 @@ export function CheckResult({ res, action }: { res: Confirmed; action?: ReactNod
 
       {res.check && (
         <ul className="space-y-1.5">
-          {res.check.lines.map((line) => (
-            <li key={line.text} className={`flex gap-2 text-[13px] leading-snug ${LINE[line.kind].color}`}>
+          {res.check.lines.map((line, index) => (
+            <li key={`${index}-${line.text}`} className={`flex gap-2 text-body leading-snug ${LINE[line.kind].color}`}>
               <Icon name={LINE[line.kind].icon} size={15} className="mt-0.5 shrink-0" />
               <span>{line.text}</span>
             </li>
@@ -42,7 +42,7 @@ export function CheckResult({ res, action }: { res: Confirmed; action?: ReactNod
 
       <div className="flex flex-wrap items-center gap-3">
         <span
-          className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${
+          className={`rounded-full px-2.5 py-1 text-meta font-medium ${
             enabled ? 'bg-ok-soft text-ok' : 'bg-sev-minor-soft text-sev-minor'
           }`}
         >

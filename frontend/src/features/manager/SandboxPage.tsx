@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
-import type { BusEvent, Device } from '../../api'
+import type { Device } from '../../api'
+import { useStore } from '../../store'
 import { COMPLEXES, devicesFor, flatOptions, type FlatChoice } from '../../shared/housing'
 import { Dropdown } from '../../shared/ui/Dropdown'
 import { DeviceCard } from './DeviceCard'
@@ -8,12 +9,13 @@ import { EventFeed } from './EventFeed'
 
 type SandboxPageProps = {
   devices: Device[]
-  events: BusEvent[]
-  telemetry: BusEvent[]
 }
 
 /** Песочница эмуляторов встроена в кабинет УК: прогон правил и ручные воздействия. */
-export function SandboxPage({ devices, events, telemetry }: SandboxPageProps) {
+export function SandboxPage({ devices }: SandboxPageProps) {
+  // Шину читает только песочница: остальной кабинет не перерисовывается на каждое событие.
+  const events = useStore((state) => state.events)
+  const telemetry = useStore((state) => state.telemetry)
   const [complexId, setComplexId] = useState(COMPLEXES[0].id)
   const [flat, setFlat] = useState<FlatChoice>('all')
   const complex = COMPLEXES.find((item) => item.id === complexId) ?? COMPLEXES[0]

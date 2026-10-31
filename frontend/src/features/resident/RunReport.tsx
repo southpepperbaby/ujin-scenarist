@@ -17,15 +17,15 @@ export function RunReport({ report, devices }: RunReportProps) {
   return (
     <div className="rounded-2xl border border-line bg-surface p-4">
       <div className="flex items-center justify-between">
-        <p className="text-[11px] font-semibold tracking-widest text-ink-mute">ПРОГОН НА ЭМУЛЯТОРЕ</p>
-        <span className={`text-[12px] font-medium ${report.passed ? 'text-ok' : 'text-sev-crit'}`}>
+        <p className="text-caption font-semibold tracking-widest text-ink-mute">ПРОГОН НА ЭМУЛЯТОРЕ</p>
+        <span className={`text-meta font-medium ${report.passed ? 'text-ok' : 'text-sev-crit'}`}>
           {report.passed ? 'без ошибок' : 'есть ошибки'}
         </span>
       </div>
 
-      <p className="mt-2 text-[13px] leading-snug text-ink-dim">{report.verdict}</p>
+      <p className="mt-2 text-body leading-snug text-ink-dim">{report.verdict}</p>
       {report.sim_time && (
-        <p className="mt-1 text-[12px] text-ink-mute">время в прогоне: {report.sim_time}</p>
+        <p className="mt-1 text-meta text-ink-mute">время в прогоне: {report.sim_time}</p>
       )}
 
       {steps.length > 0 && (
@@ -37,7 +37,7 @@ export function RunReport({ report, devices }: RunReportProps) {
                 size={15}
                 className={`mt-0.5 shrink-0 ${ACTION_STATUS_COLOR[step.status] ?? 'text-ink-mute'}`}
               />
-              <span className="text-[13px] leading-snug text-ink-dim">
+              <span className="text-body leading-snug text-ink-dim">
                 {describeAction(step, devices)}
                 {step.status !== 'ok' && step.detail && (
                   <span className="text-ink-mute">: {step.detail}</span>
@@ -49,7 +49,7 @@ export function RunReport({ report, devices }: RunReportProps) {
       )}
 
       {!report.lint.ok && (
-        <p className="mt-3 rounded-xl bg-sev-crit-soft px-3 py-2 text-[12px] text-sev-crit">
+        <p className="mt-3 rounded-xl bg-sev-crit-soft px-3 py-2 text-meta text-sev-crit">
           Линтер нашёл ошибок: {report.lint.errors ?? report.lint.issues.length}
         </p>
       )}

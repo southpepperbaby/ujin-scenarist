@@ -22,7 +22,7 @@ export function ruleLines(rule: Rule, devices: Device[]) {
     trigger.op === 'changed'
       ? `${deviceName(devices, trigger.device_id)} · ${signalTitle(devices, trigger.device_id, trigger.signal)} изменился`
       : `${deviceName(devices, trigger.device_id)} · ${signalTitle(devices, trigger.device_id, trigger.signal)} ${
-          OP_TITLE[trigger.op]
+          OP_TITLE[trigger.op] ?? trigger.op
         } ${valueLabel(devices, trigger.device_id, trigger.signal, trigger.value)}`,
   ]
 
