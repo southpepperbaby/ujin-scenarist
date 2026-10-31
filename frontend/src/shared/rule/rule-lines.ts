@@ -29,7 +29,7 @@ export function ruleLines(rule: Rule, devices: Device[]) {
   ]
 
   const conditions = rule.conditions.map((condition) => {
-    if (!condition.device_id) return TIME_HINT
+    if (condition.type === 'time' || !condition.device_id) return TIME_HINT
     return `${deviceName(devices, condition.device_id)} · ${signalTitle(devices, condition.device_id, condition.signal)} ${
       OP_TITLE[condition.op] ?? condition.op
     } ${valueLabel(devices, condition.device_id, condition.signal, condition.value)}`
