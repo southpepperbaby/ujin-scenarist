@@ -1,12 +1,13 @@
 import { useState } from 'react'
 
-import { api, type RunRecord, type SimulateReport } from '../../api'
+import { api, type Confirmed, type RunRecord, type SimulateReport } from '../../api'
 import { useStore } from '../../store'
 import {
   ACTION_STATUS_COLOR,
   ACTION_STATUS_ICON,
   describeAction,
 } from '../../shared/rule/describe-action'
+import { CheckResult } from '../../shared/rule/CheckResult'
 import { ConfirmCard } from '../../shared/rule/ConfirmCard'
 import { useRuleChat } from '../../shared/rule/use-rule-chat'
 import { Bubble } from '../../shared/ui/Bubble'
@@ -63,7 +64,7 @@ export function AssistantPage() {
     useRuleChat('uk')
   const [run, setRun] = useState<RunRecord | null>(null)
   const [report, setReport] = useState<SimulateReport | null>(null)
-  const [saved, setSaved] = useState<string | null>(null)
+  const [saved, setSaved] = useState<Confirmed | null>(null)
 
   const clearOutcome = () => {
     setRun(null)
@@ -80,9 +81,7 @@ export function AssistantPage() {
     const res = await confirm()
     if (!res) return
     if (res.kind === 'command') setRun(res.run ?? null)
-    else
-      setSaved(res.lint?.ok ? `Правило «${res.rule?.title}» добавлено и работает.`
-        : `Правило «${res.rule?.title}» сохранено черновиком: ${res.lint?.issues.find((i) => i.level === 'error')?.message ?? 'есть ошибки'}`)
+    else setSaved(res)
   }
 
   const simulate = async () => {
@@ -186,9 +185,7 @@ export function AssistantPage() {
           </>
         )}
 
-        {saved && (
-          <p className="rise rounded-xl border border-ok/30 bg-ok-soft px-3 py-2 text-[13px] text-ok">{saved}</p>
-        )}
+        {saved && <CheckResult res={saved} />}
 
         {previous && !result && !busy && (
           <p className="text-[12px] text-ink-mute">
