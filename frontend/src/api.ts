@@ -256,6 +256,17 @@ export type Compiled = {
 
 export type Confirmed = { kind: 'rule' | 'command'; explanation: string; rule?: Rule; lint?: Lint; run?: RunRecord }
 
+export type Policy = { auto_send_building: boolean; auto_categories: string[]; daily_limit: number }
+
+export type GherkinStep = { keyword: string; text: string; line: number; status: 'passed' | 'failed' | 'undefined' | 'skipped'; detail: string }
+export type GherkinReport = {
+  feature: string
+  passed: boolean
+  summary: string
+  text: string
+  scenarios: { name: string; passed: boolean; steps: GherkinStep[] }[]
+}
+
 export const api = {
   families: () => json<Family[]>('/api/families'),
   devices: () => json<Device[]>('/api/devices'),
@@ -300,6 +311,9 @@ export const api = {
   lint: (rule: Rule) => json<Lint>('/api/lint', { method: 'POST', ...body(rule) }),
   simulate: (rule: Rule, ticks = 15) =>
     json<SimulateReport>('/api/simulate', { method: 'POST', ...body({ rule, ticks }) }),
+  policy: () => json<Policy>('/api/policy'),
+  setPolicy: (policy: Policy) => json<Policy>('/api/policy', { method: 'PUT', ...body(policy) }),
+  gherkin: (rule: Rule) => json<GherkinReport>('/api/gherkin/run', { method: 'POST', ...body({ rule }) }),
   explainRule: (id: string) => json<{ text: string }>(`/api/rules/${id}/explain`),
   executeNow: (rule: Rule) => json<RunRecord>('/api/nl/execute', { method: 'POST', ...body(rule) }),
 }
