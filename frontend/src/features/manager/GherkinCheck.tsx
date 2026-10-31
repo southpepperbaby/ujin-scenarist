@@ -35,7 +35,7 @@ export function GherkinCheck({ rule }: { rule: Rule }) {
   }
 
   return (
-    <div className="mt-3 w-full rounded-xl border border-line bg-base/40 p-3">
+    <div className="mt-3 w-full rounded-xl border border-line bg-canvas/40 p-3">
       <div className="flex items-center justify-between">
         <p className={`text-[12px] font-semibold ${report.passed ? 'text-ok' : 'text-sev-crit'}`}>
           Gherkin: {report.summary}

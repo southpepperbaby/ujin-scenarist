@@ -26,7 +26,7 @@ export function AlertCard({ notice, ticket, onTicketChanged }: AlertCardProps) {
   return (
     <article className={`rounded-2xl border p-4 ${style.border} ${style.bg}`}>
       <div className="flex items-start gap-3">
-        <span className={`mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-base/40 ${style.text}`}>
+        <span className={`mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-canvas/40 ${style.text}`}>
           <Icon name={style.icon} size={18} />
         </span>
         <div className="min-w-0 flex-1">

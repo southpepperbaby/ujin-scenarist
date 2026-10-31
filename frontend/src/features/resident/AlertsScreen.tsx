@@ -1,20 +1,12 @@
-import { useState } from 'react'
-
 import { useStore } from '../../store'
 import { useDispatchData } from '../../shared/use-dispatch'
-import { LEVELS, levelOfNotice } from '../../shared/severity'
-import { Chip } from '../../shared/ui/Chip'
 import { AlertCard } from './AlertCard'
 
 export function AlertsScreen({ demo }: { demo: boolean }) {
   const { tickets, reload } = useDispatchData(demo, 'resident')
   const byId = new Map(tickets.map((ticket) => [ticket.id, ticket]))
   const notifications = useStore((state) => state.notifications).filter((n) => n.target === 'resident')
-  const [level, setLevel] = useState<number | null>(null)
-
-  const visible = [...notifications]
-    .reverse()
-    .filter((notice) => level === null || levelOfNotice(notice.level) === level)
+  const visible = [...notifications].reverse()
 
   return (
     <div className="space-y-4 px-5 pt-4 pb-8">
@@ -24,17 +16,6 @@ export function AlertsScreen({ demo }: { demo: boolean }) {
           Уровень подсказывает, нужна ли ваша реакция прямо сейчас.
         </p>
       </header>
-
-      <div className="scroll-slim -mx-5 flex gap-2 overflow-x-auto px-5 pb-1">
-        <Chip active={level === null} onClick={() => setLevel(null)}>
-          Все
-        </Chip>
-        {LEVELS.map((item) => (
-          <Chip key={item.level} active={level === item.level} onClick={() => setLevel(item.level)}>
-            {item.label}
-          </Chip>
-        ))}
-      </div>
 
       <div className="space-y-2.5">
         {visible.map((notice) => (

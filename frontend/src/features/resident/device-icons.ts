@@ -10,6 +10,7 @@ const BY_FAMILY: Record<string, IconName> = {
   fire: 'flame',
   barrier: 'barrier',
   elevator: 'elevator',
+  ventilation: 'fan',
 }
 
 /** Имя сигнала, которое показывается на плитке устройства крупным значением. */
@@ -23,6 +24,7 @@ const PRIMARY_SIGNAL: Record<string, string> = {
   fire: 'smoke',
   barrier: 'state',
   elevator: 'floor_current',
+  ventilation: 'co2',
 }
 
 export function deviceIcon(family: string): IconName {

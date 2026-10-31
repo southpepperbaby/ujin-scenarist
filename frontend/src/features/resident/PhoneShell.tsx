@@ -24,9 +24,9 @@ function StatusBar() {
 /** Телефонная рамка: на большом экране — макет устройства, на телефоне — весь вьюпорт. */
 export function PhoneShell({ children, tabBar }: PhoneShellProps) {
   return (
-    <div className="relative flex min-h-screen justify-center overflow-hidden bg-base sm:py-8">
+    <div className="relative flex min-h-screen justify-center overflow-hidden bg-canvas sm:py-8">
       <Aurora intensity="bold" />
-      <div className="relative flex w-full max-w-[420px] flex-col overflow-hidden bg-base/60 sm:h-[880px] sm:rounded-[2.5rem] sm:border sm:border-line-strong sm:shadow-2xl">
+      <div className="relative flex w-full max-w-[420px] flex-col overflow-hidden bg-canvas/60 sm:h-[880px] sm:rounded-[2.5rem] sm:border sm:border-line-strong sm:shadow-2xl">
         <Aurora />
         <StatusBar />
         <div className="scroll-slim relative z-10 flex-1 overflow-y-auto">{children}</div>
