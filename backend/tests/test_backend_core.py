@@ -107,47 +107,75 @@ def dispatch_setup():
     return bus, reg, tickets, engine, disp
 
 
-def fake_jev(category="plumbing", level="3", conf=0.95, damage=0.9, false_alarm=0.05):
+def fake_jev(category="plumbing", level="3", conf=0.95, false_alarm=0.05, calls=None):
     async def jev(state, questions):
+        if calls is not None:
+            calls.append(set(questions))
         probs = {str(i): 0.0 for i in range(4)}
         probs[level] = 1.0
         return {"category": {"choice": category, "confidence": conf},
-                "severity": {"probabilities": probs},
-                "damage": {"noul": damage}, "people": {"noul": 0.1}, "false_alarm": {"noul": false_alarm}}
+                "severity": {"probabilities": probs}, "false_alarm": {"noul": false_alarm}}
     return jev
 
 
+async def no_jev(state, questions):
+    raise AssertionError("Jev не должен вызываться для известной неисправности")
+
+
 @pytest.mark.asyncio
-async def test_critical_leak_sends_ticket_immediately(monkeypatch):
-    monkeypatch.setattr(ai, "jev", fake_jev())
+async def test_critical_leak_sends_ticket_immediately_by_table(monkeypatch):
+    monkeypatch.setattr(ai, "jev", no_jev)
     _, _, tickets, engine, disp = dispatch_setup()
     inc = await disp.handle("leak", "leak", "Протечка воды", held_s=3)
-    assert inc["decision"] == "auto"
+    assert inc["decision"] == "auto" and inc["verdict"]["source"] == "rules"
     t = tickets.tickets[inc["ticket_id"]]
     assert t.status == "new" and t.contractor_id == "aquaservice" and t.sla_due
     assert {n["target"] for n in engine.notifications} == {"concierge", "resident"}
 
 
 @pytest.mark.asyncio
-async def test_minor_problem_waits_for_confirmation(monkeypatch):
-    monkeypatch.setattr(ai, "jev", fake_jev(category="electric", level="1", damage=0.1))
+async def test_unknown_problem_asks_jev_for_contractor(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ai, "jev", fake_jev(category="electric", level="1", calls=calls))
     _, _, tickets, _, disp = dispatch_setup()
-    inc = await disp.handle("light", None, "Свет не включается")
+    inc = await disp.handle("light", "lamp", "Свет не включается")
     t = tickets.tickets[inc["ticket_id"]]
-    assert inc["decision"] == "draft" and t.status == "draft" and t.needs_confirmation == "resident"
+    assert calls == [{"category", "severity", "false_alarm"}]
+    assert t.category == "electric" and inc["decision"] == "draft" and t.needs_confirmation == "resident"
+
+
+@pytest.mark.asyncio
+async def test_alarm_combination_asks_jev_for_severity_only(monkeypatch):
+    calls = []
+    monkeypatch.setattr(ai, "jev", fake_jev(level="3", calls=calls))
+    _, reg, tickets, _, disp = dispatch_setup()
+    reg.inject("leak", "wet", True)
+    reg.step_all()
+    inc = await disp.handle("valve", "jammed", "Заклинило привод клапана")
+    assert calls == [{"severity", "false_alarm"}]           # категорию знает таблица
+    assert inc["verdict"]["level"] == 3 and inc["decision"] == "auto"
+    assert tickets.tickets[inc["ticket_id"]].category == "plumbing"
 
 
 @pytest.mark.asyncio
 async def test_low_confidence_only_logs(monkeypatch):
     monkeypatch.setattr(ai, "jev", fake_jev(conf=0.4))
     _, _, tickets, _, disp = dispatch_setup()
-    inc = await disp.handle("leak", "leak", "Протечка воды")
+    inc = await disp.handle("light", "lamp", "Странное поведение света")
     assert inc["decision"] == "log" and not tickets.tickets
 
 
 @pytest.mark.asyncio
+async def test_offline_device_is_minor_without_ai(monkeypatch):
+    monkeypatch.setattr(ai, "jev", no_jev)
+    _, _, tickets, _, disp = dispatch_setup()
+    inc = await disp.handle("leak", None, "Датчик протечки: нет связи")
+    assert inc["verdict"]["level"] == 1 and inc["decision"] == "draft"
+
+
+@pytest.mark.asyncio
 async def test_duplicate_incident_does_not_create_second_ticket(monkeypatch):
-    monkeypatch.setattr(ai, "jev", fake_jev())
+    monkeypatch.setattr(ai, "jev", no_jev)
     _, _, tickets, _, disp = dispatch_setup()
     await disp.handle("leak", "leak", "Протечка воды")
     second = await disp.handle("leak", "leak", "Протечка воды")
@@ -160,8 +188,8 @@ async def test_fallback_without_ai(monkeypatch):
         raise ai.AIUnavailable("нет сети")
     monkeypatch.setattr(ai, "jev", down)
     _, _, tickets, _, disp = dispatch_setup()
-    inc = await disp.handle("leak", "leak", "Протечка воды")
-    assert inc["verdict"]["source"] == "rules" and inc["decision"] == "auto"
+    inc = await disp.handle("light", "lamp", "Свет не включается")
+    assert inc["verdict"]["source"] == "rules" and inc["verdict"]["category"] == "electric"
 
 
 @pytest.mark.asyncio
@@ -204,7 +232,7 @@ async def test_nl_compile_maps_aliases_back_and_lints(monkeypatch):
 
     async def llm(system, user, **kw):
         assert "leak" not in user.split("Просьба:")[0].split('"device":')[1][:8]   # id скрыт псевдонимом
-        return {"title": "Протечка: закрыть воду",
+        return {"intent": "rule", "title": "Протечка: закрыть воду",
                 "trigger": {"device": "dev_1", "signal": "leak", "op": "eq", "value": 1},
                 "actions": [{"type": "set_signal", "device": "dev_2", "signal": "valve", "value": 0},
                             {"type": "notify", "target": "resident", "level": "critical", "message": "Протечка"}],
@@ -307,9 +335,9 @@ def test_time_window_over_midnight():
 
 @pytest.mark.asyncio
 async def test_major_problem_is_a_ready_draft_for_both_sides(monkeypatch):
-    monkeypatch.setattr(ai, "jev", fake_jev(category="access", level="2", damage=0.2))
+    monkeypatch.setattr(ai, "jev", no_jev)
     _, _, tickets, engine, disp = dispatch_setup()
-    inc = await disp.handle("leak", None, "Заклинило")
+    inc = await disp.handle("valve", "jammed", "Заклинило привод клапана")
     t = tickets.tickets[inc["ticket_id"]]
     assert inc["decision"] == "draft" and t.status == "draft"
     assert {n["target"] for n in engine.notifications} == {"resident"}   # некритичное не уходит в УК
@@ -335,15 +363,15 @@ def test_uk_sees_only_critical_apartment_tickets():
 
 @pytest.mark.asyncio
 async def test_uk_can_enable_auto_send_for_building_minor(monkeypatch):
-    monkeypatch.setattr(ai, "jev", fake_jev(category="access", level="1", damage=0.1))
+    monkeypatch.setattr(ai, "jev", no_jev)
     _, _, tickets, engine, disp = dispatch_setup()
-    first = await disp.handle("barrier", None, "Авария шлагбаума")
+    first = await disp.handle("barrier", "alarm", "Авария шлагбаума")
     assert first["decision"] == "draft"
     tickets.tickets.clear()
     disp.policy.auto_send_building = True
-    second = await disp.handle("barrier", None, "Авария шлагбаума")
+    second = await disp.handle("barrier", "alarm", "Авария шлагбаума")
     assert second["decision"] == "auto" and tickets.tickets[second["ticket_id"]].status == "new"
     disp.policy.auto_categories = ["lift"]
     tickets.tickets.clear()
-    third = await disp.handle("barrier", None, "Авария шлагбаума")
+    third = await disp.handle("barrier", "alarm", "Авария шлагбаума")
     assert third["decision"] == "draft"
