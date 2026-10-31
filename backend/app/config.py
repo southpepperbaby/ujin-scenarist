@@ -25,5 +25,5 @@ UJIN = load_ujin_secrets()
 UJIN_BASE_URL = UJIN.get("api_base") or os.environ.get("UJIN_BASE", "https://api-uae-test.ujin.tech/api")
 UJIN_LIVE = os.environ.get("UJIN_LIVE", "0") == "1"
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3-30b-a3b")
+LLM_MODEL = os.environ.get("LLM_MODEL", "qwen/qwen3.8-flash")
 JEV_MODEL = os.environ.get("JEV_MODEL", "~typesafe/jev-latest")
