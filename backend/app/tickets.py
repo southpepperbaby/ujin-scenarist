@@ -144,11 +144,19 @@ def visible_to(t: "Ticket", role: str) -> bool:
 
 
 class TicketService:
-    def __init__(self, bus: EventBus, contractors: list[Contractor] | None = None):
+    def __init__(self, bus: EventBus, contractors: list[Contractor] | None = None, storage=None):
         self.bus = bus
+        self.storage = storage
         self.contractors: dict[str, Contractor] = {c.id: c for c in (contractors or SEED_CONTRACTORS)}
         self.tickets: dict[str, Ticket] = {}
         self.network = True                     # тесты выключают внешние вызовы
+        if storage:
+            for raw in storage.all("contractors"):
+                c = Contractor.model_validate(raw)
+                self.contractors[c.id] = c
+            for raw in storage.all("tickets"):
+                t = Ticket.model_validate(raw)
+                self.tickets[t.id] = t
 
     # ---------- подрядчики ----------
 
@@ -160,6 +168,8 @@ class TicketService:
 
     def upsert_contractor(self, c: Contractor) -> Contractor:
         self.contractors[c.id] = c
+        if self.storage:
+            self.storage.put("contractors", c.id, c.model_dump(mode="json"))
         return c
 
     # ---------- заявки ----------
@@ -183,6 +193,7 @@ class TicketService:
         self._emit(ticket, "created")
         if ticket.status == "new":
             await self._deliver(ticket)
+            self._save(ticket)
         return ticket
 
     async def transition(self, ticket_id: str, status: Status, actor: str, note: str = "") -> Ticket:
@@ -196,7 +207,12 @@ class TicketService:
         self._emit(t, "status")
         return t
 
+    def _save(self, t: Ticket) -> None:
+        if self.storage:
+            self.storage.put("tickets", t.id, t.model_dump(mode="json"))
+
     def _emit(self, t: Ticket, action: str) -> None:
+        self._save(t)
         self.bus.emit("ticket", t.device_id, action=action, ticket_id=t.id, status=t.status,
                       level=t.level, message=f"Заявка {t.id} ({t.contractor_name}): {STATUS_TITLES[t.status]}",
                       ticket=t.model_dump(mode="json"))

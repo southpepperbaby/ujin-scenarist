@@ -135,16 +135,20 @@ def compare(op: str, current: Any, expected: Any, prev: Any = None) -> bool:
 
 
 class RuleStore:
-    """Правила в JSON-файле: переживают перезапуск, читаются глазами, легко сидить."""
+    """Правила в хранилище SQLite: переживают перезапуск. Старый rules.json забирается один раз."""
 
-    def __init__(self, path: Path | None = None):
-        self.path = path
+    def __init__(self, storage=None, legacy_path: Path | None = None):
+        self.storage = storage
         self._lock = threading.Lock()
         self.rules: dict[str, Rule] = {}
-        if path and path.exists():
-            for raw in json.loads(path.read_text(encoding="utf-8")):
-                rule = Rule.model_validate(raw)
-                self.rules[rule.id] = rule
+        rows = storage.all("rules") if storage else []
+        if not rows and legacy_path and legacy_path.exists():
+            rows = json.loads(legacy_path.read_text(encoding="utf-8"))
+        for raw in rows:
+            rule = Rule.model_validate(raw)
+            self.rules[rule.id] = rule
+            if storage:
+                storage.put("rules", rule.id, rule.model_dump(mode="json"))
 
     def all(self) -> list[Rule]:
         return list(self.rules.values())
@@ -158,20 +162,15 @@ class RuleStore:
     def put(self, rule: Rule) -> Rule:
         with self._lock:
             self.rules[rule.id] = rule
-            self._save()
+            if self.storage:
+                self.storage.put("rules", rule.id, rule.model_dump(mode="json"))
         return rule
 
     def delete(self, rule_id: str) -> None:
         with self._lock:
             self.rules.pop(rule_id)
-            self._save()
-
-    def _save(self) -> None:
-        if not self.path:
-            return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        data = [r.model_dump(mode="json") for r in self.rules.values()]
-        self.path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            if self.storage:
+                self.storage.delete("rules", rule_id)
 
 
 def to_ujin_autoscript(rule: Rule, serial_of: dict[str, str], prefix: str = "") -> dict:
