@@ -1,7 +1,7 @@
 import type { Device, Rule } from '../../api'
 import { deviceById, signalTitle, valueLabel } from '../../store'
 
-const OP_TITLE: Record<string, string> = {
+export const OP_TITLE: Record<string, string> = {
   eq: '=',
   ne: '≠',
   gt: '>',

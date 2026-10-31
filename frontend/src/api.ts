@@ -35,7 +35,28 @@ export type Family = {
   inputs: string[]
   declaration: Omit<SignalDecl, 'value'>[]
   events: DeviceEvent[]
+  /** Свой тип из конструктора: его можно править и удалять. */
+  custom?: boolean
+  spec?: DeviceTypeSpec | null
 }
+
+export type SignalGroup = 'property' | 'event' | 'command' | 'setting'
+export type SignalValueType = 'number' | 'switch' | 'list' | 'text'
+
+export type SignalSpec = {
+  name: string
+  title: string
+  group: SignalGroup
+  type: SignalValueType
+  measure?: string
+  min?: number | null
+  max?: number | null
+  layout?: Record<string, string> | null
+  default?: number | string
+  alarm_value?: number | string | null
+}
+
+export type DeviceTypeSpec = { family: string; title: string; signals: SignalSpec[] }
 
 export type Op = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'changed'
 
@@ -187,19 +208,30 @@ export type SimulateReport = {
   lint: Lint
 }
 
+/** 422 от pydantic приходит списком {msg, loc}: сводим к читаемой строке. */
+function readableDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    return detail
+      .map((item) => String((item as { msg?: string }).msg ?? JSON.stringify(item)).replace(/^Value error, /, ''))
+      .join('; ')
+  }
+  return JSON.stringify(detail)
+}
+
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     headers: { 'Content-Type': 'application/json' },
     ...init,
   })
   if (!res.ok) {
-    let detail = await res.text()
+    let detail: unknown = await res.text()
     try {
-      detail = JSON.parse(detail).detail ?? detail
+      detail = JSON.parse(detail as string).detail ?? detail
     } catch {
       /* текст как есть */
     }
-    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+    throw new Error(readableDetail(detail))
   }
   if (res.status === 204) return undefined as T
   return res.json()
@@ -231,7 +263,12 @@ export const api = {
     json<Device>('/api/devices', { method: 'POST', ...body(d) }),
   patchDevice: (id: string, patch: Partial<Pick<Device, 'title' | 'room' | 'scope' | 'online'>>) =>
     json<Device>(`/api/devices/${id}`, { method: 'PATCH', ...body(patch) }),
-  deleteDevice: (id: string) => json(`/api/devices/${id}`, { method: 'DELETE' }),
+  deleteDevice: (id: string) => json<void>(`/api/devices/${id}`, { method: 'DELETE' }),
+
+  createType: (spec: DeviceTypeSpec) => json<Family>('/api/device-types', { method: 'POST', ...body(spec) }),
+  updateType: (spec: DeviceTypeSpec) =>
+    json<Family>(`/api/device-types/${spec.family}`, { method: 'PUT', ...body(spec) }),
+  deleteType: (family: string) => json<void>(`/api/device-types/${family}`, { method: 'DELETE' }),
   command: (id: string, signal: string, value: unknown) =>
     json(`/api/devices/${id}/command`, { method: 'POST', ...body({ signal, value }) }),
   inject: (id: string, input: string, value: unknown) =>
