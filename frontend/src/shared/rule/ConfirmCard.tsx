@@ -24,18 +24,18 @@ export function ConfirmCard({ result, busy, onConfirm, onRefine, extra }: Confir
   const issues = result.lint?.issues.filter((issue) => issue.level !== 'info') ?? []
 
   return (
-    <Glass className="rise space-y-3 p-4">
-      <p className="text-[11px] font-semibold tracking-widest text-ink-mute">
+    <Glass tone="solid" className="rise space-y-3 p-4">
+      <p className="text-caption font-semibold tracking-widest text-ink-mute">
         {command ? 'БУДЕТ ВЫПОЛНЕНО СЕЙЧАС' : 'БУДЕТ ДОБАВЛЕНО ПРАВИЛО'}
       </p>
-      <p className="text-[14px] leading-relaxed text-ink">{result.explanation}</p>
+      <p className="text-sm leading-relaxed text-ink">{result.explanation}</p>
 
       {issues.length > 0 && (
         <ul className="space-y-1">
           {issues.map((issue) => (
             <li
               key={`${issue.code}-${issue.message}`}
-              className={`flex gap-2 text-[12px] ${issue.level === 'error' ? 'text-sev-crit' : 'text-sev-minor'}`}
+              className={`flex gap-2 text-meta ${issue.level === 'error' ? 'text-sev-crit' : 'text-sev-minor'}`}
             >
               <Icon name="alert" size={14} className="mt-0.5 shrink-0" />
               {issue.message}

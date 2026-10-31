@@ -20,3 +20,14 @@ export const RULE_STATUS: Record<Rule['status'], Style> = {
   tested: { label: 'Прогнано на эмуляторе', className: 'bg-accent-soft text-accent' },
   active: { label: 'Включено', className: 'bg-ok-soft text-ok' },
 }
+
+const UNKNOWN = 'bg-field text-ink-mute'
+
+/** Статус, которого нет в таблице (бэкенд ушёл вперёд), показываем как есть, а не роняем экран. */
+export function ticketStatus(status: string): Style {
+  return TICKET_STATUS[status as TicketStatus] ?? { label: status, className: UNKNOWN }
+}
+
+export function ruleStatus(status: string): Style {
+  return RULE_STATUS[status as Rule['status']] ?? { label: status, className: UNKNOWN }
+}

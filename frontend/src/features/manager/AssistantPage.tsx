@@ -8,6 +8,7 @@ import {
   describeAction,
 } from '../../shared/rule/describe-action'
 import { CheckResult } from '../../shared/rule/CheckResult'
+import { Pipeline } from '../../shared/rule/Pipeline'
 import { ConfirmCard } from '../../shared/rule/ConfirmCard'
 import { useRuleChat } from '../../shared/rule/use-rule-chat'
 import { Bubble } from '../../shared/ui/Bubble'
@@ -34,7 +35,7 @@ function Steps({ actions }: { actions: RunRecord['actions'] }) {
             size={15}
             className={`mt-0.5 shrink-0 ${ACTION_STATUS_COLOR[action.status] ?? 'text-ink-mute'}`}
           />
-          <span className="text-[13px] leading-snug text-ink-dim">
+          <span className="text-body leading-snug text-ink-dim">
             {describeAction(action, devices)}
             {action.status !== 'ok' && action.detail && (
               <span className="text-ink-mute">: {action.detail}</span>
@@ -65,7 +66,9 @@ export function AssistantPage() {
     setSaved(null)
   }
 
+  // Пустой Enter или Enter во время ответа ничего не отправляет — и не стирает показанный итог.
   const ask = async (query: string) => {
+    if (!query.trim() || busy) return
     clearOutcome()
     await send(query)
   }
@@ -100,8 +103,10 @@ export function AssistantPage() {
           </Bubble>
         ))}
 
+        <Pipeline busy={busy} result={result} checked={saved} />
+
         {busy && (
-          <div className="glass inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-ink-dim">
+          <div className="glass inline-flex items-center gap-2 rounded-2xl px-4 py-3 text-ink-dim" role="status">
             <TypingDots />
           </div>
         )}
@@ -109,7 +114,7 @@ export function AssistantPage() {
         {result && (
           <>
             {intent && (
-              <p className="rise text-[11px] font-semibold tracking-widest text-ink-mute">
+              <p className="rise text-caption font-semibold tracking-widest text-ink-mute">
                 {INTENT_TITLE[intent] ?? intent}
               </p>
             )}
@@ -126,7 +131,7 @@ export function AssistantPage() {
                 onRefine={onRefine}
                 extra={
                   intent === 'rule' && (
-                    <Button variant="secondary" icon="play" onClick={() => void simulate()}>
+                    <Button variant="secondary" icon="play" disabled={busy} onClick={() => void simulate()}>
                       Прогнать
                     </Button>
                   )
@@ -135,21 +140,21 @@ export function AssistantPage() {
             )}
 
             {run && (
-              <Glass className="rise p-4">
-                <p className="text-[11px] font-semibold tracking-widest text-ink-mute">ВЫПОЛНЕНО</p>
+              <Glass tone="solid" className="rise p-4">
+                <p className="text-caption font-semibold tracking-widest text-ink-mute">ВЫПОЛНЕНО</p>
                 <Steps actions={run.actions} />
               </Glass>
             )}
 
             {report && (
-              <Glass className="rise p-4">
+              <Glass tone="solid" className="rise p-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-[11px] font-semibold tracking-widest text-ink-mute">ПРОГОН</p>
-                  <span className={`text-[12px] ${report.passed ? 'text-ok' : 'text-sev-crit'}`}>
+                  <p className="text-caption font-semibold tracking-widest text-ink-mute">ПРОГОН</p>
+                  <span className={`text-meta ${report.passed ? 'text-ok' : 'text-sev-crit'}`}>
                     {report.passed ? 'без ошибок' : 'есть ошибки'}
                   </span>
                 </div>
-                <p className="mt-2 text-[13px] text-ink-dim">{report.verdict}</p>
+                <p className="mt-2 text-body text-ink-dim">{report.verdict}</p>
                 <Steps actions={report.runs.flatMap((item) => item.actions ?? [])} />
               </Glass>
             )}
@@ -159,7 +164,7 @@ export function AssistantPage() {
         {saved && <CheckResult res={saved} />}
 
         {previous && !result && !busy && (
-          <p className="text-[12px] text-ink-mute">
+          <p className="text-meta text-ink-mute">
             Напишите, что уточнить, или{' '}
             <button type="button" onClick={() => { reset(); clearOutcome() }} className="underline hover:text-ink">
               начните заново
@@ -169,7 +174,7 @@ export function AssistantPage() {
         )}
 
         {error && (
-          <p className="rounded-xl border border-sev-crit/30 bg-sev-crit-soft px-3 py-2 text-[13px] text-sev-crit">
+          <p role="alert" className="rounded-xl border border-sev-crit/30 bg-sev-crit-soft px-3 py-2 text-body text-sev-crit">
             {error}
           </p>
         )}
@@ -180,20 +185,21 @@ export function AssistantPage() {
           value={text}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
+            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault()
               void ask(text)
             }
           }}
           rows={2}
+          aria-label="Вопрос, команда или правило для ассистента"
           placeholder={previous ? 'Что уточнить? Например: только ночью' : 'Спросите о доме, дайте команду или опишите правило'}
-          className="scroll-slim glass flex-1 resize-none rounded-2xl px-4 py-3 text-[14px] text-ink outline-none placeholder:text-ink-mute focus:border-accent/50"
+          className="scroll-slim glass flex-1 resize-none rounded-2xl px-4 py-3 text-sm text-ink outline-none placeholder:text-ink-mute focus:border-accent/60 focus:ring-2 focus:ring-accent/25"
         />
         <button
           type="button"
           onClick={() => void ask(text)}
-          disabled={busy}
-          className="press flex size-12 shrink-0 items-center justify-center rounded-2xl bg-accent text-accent-ink transition hover:brightness-110"
+          disabled={busy || text.trim() === ''}
+          className="press flex size-12 shrink-0 items-center justify-center rounded-2xl bg-accent text-accent-ink transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
           aria-label="Спросить ассистента"
         >
           <Icon name="arrowRight" size={20} />

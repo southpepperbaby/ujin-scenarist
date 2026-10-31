@@ -37,17 +37,17 @@ export function GherkinCheck({ rule }: { rule: Rule }) {
   return (
     <div className="mt-3 w-full rounded-xl border border-line bg-canvas/40 p-3">
       <div className="flex items-center justify-between">
-        <p className={`text-[12px] font-semibold ${report.passed ? 'text-ok' : 'text-sev-crit'}`}>
+        <p className={`text-meta font-semibold ${report.passed ? 'text-ok' : 'text-sev-crit'}`}>
           Gherkin: {report.summary}
         </p>
-        <button type="button" onClick={() => setReport(null)} className="text-[12px] text-ink-mute hover:text-ink">
+        <button type="button" onClick={() => setReport(null)} className="text-meta text-ink-mute hover:text-ink">
           Скрыть
         </button>
       </div>
       {report.scenarios.map((scenario) => (
         <div key={scenario.name} className="mt-2">
-          <p className="text-[12px] font-medium text-ink">Сценарий: {scenario.name}</p>
-          <ul className="mt-1 space-y-0.5 font-mono text-[11.5px]">
+          <p className="text-meta font-medium text-ink">Сценарий: {scenario.name}</p>
+          <ul className="mt-1 space-y-0.5 font-mono text-caption">
             {scenario.steps.map((step) => (
               <li key={step.line} className={`flex gap-1.5 ${STEP_STYLE[step.status] ?? ''}`}>
                 <Icon name={step.status === 'passed' ? 'check' : 'alert'} size={12} className="mt-0.5 shrink-0" />

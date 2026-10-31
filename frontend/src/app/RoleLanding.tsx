@@ -1,4 +1,4 @@
-import { navigate } from './routing'
+import { href } from './routing'
 import { Aurora } from '../shared/ui/Aurora'
 import { Glass } from '../shared/ui/Glass'
 import { Icon } from '../shared/ui/Icon'
@@ -15,7 +15,7 @@ type RoleCardProps = {
 function RoleCard({ title, subtitle, points, to, accent, index }: RoleCardProps) {
   return (
     <div className="rise" style={{ '--i': index } as React.CSSProperties}>
-      <Glass tone={accent ? 'accent' : 'plain'} className="group h-full p-7" onClick={() => navigate(to)}>
+      <Glass tone={accent ? 'accent' : 'plain'} className="group h-full p-7" href={href(to)}>
         <div className="flex items-center justify-between">
           <span
             className={`flex size-12 items-center justify-center rounded-2xl ${
@@ -49,9 +49,9 @@ function RoleCard({ title, subtitle, points, to, accent, index }: RoleCardProps)
 
 export function RoleLanding() {
   return (
-    <div className="relative min-h-screen overflow-hidden">
+    <div className="relative min-h-dvh overflow-hidden">
       <Aurora intensity="bold" />
-      <div className="relative mx-auto flex min-h-screen max-w-4xl flex-col justify-center gap-10 px-6 py-16">
+      <div className="relative mx-auto flex min-h-dvh max-w-4xl flex-col justify-center gap-10 px-6 py-16">
         <header className="rise">
           <p className="text-sm font-medium tracking-wide text-accent">UJIN OS · ERRD TEAM</p>
           <h1 className="mt-3 text-4xl">HOMIE AI</h1>
@@ -60,7 +60,7 @@ export function RoleLanding() {
             Один продукт, две роли.
           </p>
         </header>
-        <div className="grid gap-5 sm:grid-cols-2">
+        <nav aria-label="Выбор роли" className="grid gap-5 sm:grid-cols-2">
           <RoleCard
             accent
             index={1}
@@ -87,7 +87,7 @@ export function RoleLanding() {
               'Песочница эмуляторов для проверки',
             ]}
           />
-        </div>
+        </nav>
       </div>
     </div>
   )

@@ -5,6 +5,7 @@ import { formatDuration } from '../../shared/format'
 import { Button } from '../../shared/ui/Button'
 import { ErrorNote, Field, Segmented, SelectInput, TextInput } from '../../shared/ui/Fields'
 import { Modal } from '../../shared/ui/Modal'
+import { toastOk } from '../../shared/toast'
 
 type TicketFormModalProps = {
   devices: Device[]
@@ -37,6 +38,7 @@ export function TicketFormModal({ devices, contractors, categories, onClose, onC
   const contractor = contractors.find((item) => item.category === category)
 
   const submit = async (send: boolean) => {
+    if (busy) return
     if (title.trim().length === 0) {
       setError('Напишите, что случилось: это заголовок заявки для подрядчика.')
       return
@@ -53,6 +55,7 @@ export function TicketFormModal({ devices, contractors, categories, onClose, onC
         send,
       })
       onCreated()
+      toastOk(send ? 'Заявка отправлена подрядчику' : 'Заявка сохранена в черновик')
       onClose()
     } catch (cause) {
       setError(`Не удалось создать заявку: ${(cause as Error).message}`)
@@ -64,12 +67,13 @@ export function TicketFormModal({ devices, contractors, categories, onClose, onC
     <Modal
       title="Новая заявка"
       onClose={onClose}
+      dirty={title.trim() !== '' || description.trim() !== ''}
       footer={
-        <div className={`flex w-full flex-wrap gap-2 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
-          <Button variant="bright" icon="arrowRight" onClick={() => void submit(true)}>
+        <div className="flex w-full flex-wrap gap-2">
+          <Button variant="bright" icon="arrowRight" busy={busy} onClick={() => void submit(true)}>
             Отправить подрядчику
           </Button>
-          <Button variant="secondary" onClick={() => void submit(false)}>
+          <Button variant="secondary" disabled={busy} onClick={() => void submit(false)}>
             В черновик
           </Button>
         </div>
@@ -92,7 +96,7 @@ export function TicketFormModal({ devices, contractors, categories, onClose, onC
             rows={3}
             placeholder="Где именно, с какого времени, что уже проверили"
             onChange={(event) => setDescription(event.target.value)}
-            className="scroll-slim w-full resize-none rounded-lg border border-line bg-field px-2.5 py-1.5 text-[13px] text-ink outline-none transition placeholder:text-ink-mute focus:border-accent/60"
+            className="scroll-slim w-full resize-none rounded-lg border border-line bg-field px-2.5 py-1.5 text-body text-ink outline-none transition placeholder:text-ink-mute focus:border-accent/60"
           />
         </Field>
 
@@ -118,14 +122,14 @@ export function TicketFormModal({ devices, contractors, categories, onClose, onC
           </Field>
         </div>
 
-        <Field label="Срочность">
+        <Field label="Срочность" group>
           <div>
             <Segmented value={level} options={[...LEVELS]} onChange={setLevel} />
           </div>
         </Field>
 
         {contractor && (
-          <p className="rounded-lg border border-line bg-field/50 px-3 py-2 text-[12px] text-ink-dim">
+          <p className="rounded-lg border border-line bg-field/50 px-3 py-2 text-meta text-ink-dim">
             Уйдёт подрядчику <span className="font-medium text-ink">{contractor.name}</span> · реакция{' '}
             {formatDuration(contractor.sla_minutes)}
           </p>
