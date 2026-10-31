@@ -63,6 +63,7 @@ export function RuleEditorModal({ rule, isNew, onClose }: RuleEditorModalProps) 
   const patch = (p: Partial<Rule>) => setR((x) => ({ ...x, ...p }))
 
   const save = async () => {
+    if (busy) return
     if (!r.title.trim()) return setError('Назовите правило')
     setBusy(true)
     setError('')
@@ -95,7 +96,7 @@ export function RuleEditorModal({ rule, isNew, onClose }: RuleEditorModalProps) 
       wide
       footer={
         <>
-          <Button variant="primary" onClick={() => void save()}>
+          <Button variant="primary" onClick={() => void save()} disabled={busy}>
             Сохранить
           </Button>
           <Button variant="ghost" onClick={onClose}>
