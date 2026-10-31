@@ -107,7 +107,8 @@ class Engine:
                     "message": f"{action.message} ВНИМАНИЕ: не выполнено автоматически ({lost}), нужна проверка."})
             result = await self._perform(rule, action, run)
             run["actions"].append(result)
-        failed = [a for a in run["actions"] if a["status"] == "error"]
+        # Конфликт приоритетов тоже провал: действие не выполнено, хоть и по уважительной причине.
+        failed = [a for a in run["actions"] if a["status"] in ("error", "conflict")]
         status = "partial" if failed and len(failed) < len(run["actions"]) else ("error" if failed else "ok")
         return self._finish(run, status)
 
