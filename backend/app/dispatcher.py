@@ -8,7 +8,7 @@ Quality gates по порядку:
 2. дедупликация: на устройство одна открытая заявка;
 3. лимит заявок на устройство в сутки;
 4. уверенность Jev: ниже LOW только журнал, между LOW и HIGH решает человек, выше HIGH автоматически;
-5. уровень: 0 журнал, 1 черновик с подтверждением, 2 заявка с окном отмены, 3 заявка сразу;
+5. уровень: 0 журнал, 1-2 готовый черновик «отправить / отменить» у жителя и УК, 3 заявка сразу;
 6. стоимость выезда и рабочие часы подрядчика понижают автономность для некритичных случаев.
 """
 from __future__ import annotations
@@ -28,7 +28,6 @@ DEBOUNCE = 3.0
 OFFLINE_DEBOUNCE = 10.0
 LOW, HIGH = 0.6, 0.85
 DAILY_LIMIT = 3
-CANCEL_WINDOW = 600
 EXPENSIVE = 1500
 
 LEVEL_TITLES = ["информация", "минор", "мажор", "критично"]
@@ -173,24 +172,19 @@ class Dispatcher:
         confirm_by = "resident" if managed.scope == "apartment" else "concierge"
 
         if conf < HIGH:
-            why.append(f"Уверенность {conf:.0%} между {LOW:.0%} и {HIGH:.0%}: черновик, решает консьерж.")
-            ticket.needs_confirmation = "concierge"
-            decision = "draft"
-        elif level == 1:
-            why.append("Минор без риска для имущества: черновик, наряд выедет после подтверждения одной кнопкой.")
+            why.append(f"Уверенность {conf:.0%} между {LOW:.0%} и {HIGH:.0%}: готовый черновик, решает человек.")
             ticket.needs_confirmation = confirm_by
             decision = "draft"
-        elif level == 2:
-            ticket.status = "new"
-            ticket.cancel_until = time.time() + CANCEL_WINDOW
-            why.append(f"Мажор: заявка ушла подрядчику сразу, у УК есть {CANCEL_WINDOW // 60} минут на отмену.")
-            decision = "auto_cancelable"
+        elif level < 3:
+            why.append(f"{LEVEL_TITLES[level].capitalize()}: заявка готова, отправит житель или УК одной кнопкой.")
+            ticket.needs_confirmation = confirm_by
+            decision = "draft"
         else:
             ticket.status = "new"
-            why.append("Критично: заявка ушла без ожидания, консьерж оповещён.")
+            why.append("Критично: заявка ушла подрядчику без ожидания, консьерж оповещён.")
             decision = "auto"
 
-        if level <= 1 and decision == "draft" and contractor.call_out_price > EXPENSIVE:
+        if decision == "draft" and contractor.call_out_price > EXPENSIVE:
             why.append(f"Выезд стоит {contractor.call_out_price} ₽, выше лимита {EXPENSIVE} ₽ для автозаявки.")
         if level < 3 and not _in_hours(contractor.hours):
             why.append(f"Подрядчик работает {contractor.hours}, заявку возьмут в рабочее время.")
@@ -265,9 +259,11 @@ class Dispatcher:
     def _notify_people(self, managed, ticket: Ticket, decision: str) -> None:
         extra = {"ticket_id": ticket.id}
         if decision == "draft":
-            who = ticket.needs_confirmation or "concierge"
-            self.notify(who, f"{ticket.title}. Вызвать «{ticket.contractor_name}»? Подтвердите заявку {ticket.id}.",
-                        "warning", extra=extra)
+            # Черновик видят обе стороны: отправить или отменить может и житель, и УК.
+            ask = f"{ticket.title}. Заявка для «{ticket.contractor_name}» готова: отправить или отменить?"
+            self.notify("concierge", ask, "warning", extra=extra)
+            if managed.scope == "apartment":
+                self.notify("resident", ask, "warning", extra=extra)
             return
         self.notify("concierge", f"{ticket.title}: заявка {ticket.id} отправлена «{ticket.contractor_name}».",
                     "critical" if ticket.level == 3 else "warning", extra=extra)
@@ -303,7 +299,7 @@ def _decision_title(inc: dict) -> str:
     return {
         None: "обрабатываем", "duplicate": "заявка уже открыта", "limit": "лимит автозаявок",
         "log": "записано в журнал", "draft": "черновик заявки ждёт подтверждения",
-        "auto_cancelable": "заявка отправлена, можно отменить", "auto": "заявка отправлена",
+        "auto": "заявка отправлена",
     }.get(inc["decision"], inc["decision"])
 
 

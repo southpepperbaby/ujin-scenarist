@@ -43,7 +43,7 @@ async def lifespan(_app: FastAPI):
         for rule in seed_rules():
             store.put(rule)
     tasks = [asyncio.create_task(c) for c in (
-        registry.run(), engine.run(), dispatcher.run(), ujin.run(), tickets.watch_cancel_windows())]
+        registry.run(), engine.run(), dispatcher.run(), ujin.run())]
     yield
     for task in tasks:
         task.cancel()
