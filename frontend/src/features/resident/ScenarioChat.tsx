@@ -7,12 +7,6 @@ import { ConfirmCard } from '../../shared/rule/ConfirmCard'
 import { Icon } from '../../shared/ui/Icon'
 import { TypingDots } from '../../shared/ui/TypingDots'
 
-const EXAMPLES = [
-  'Если ночью на кухне протечка, перекрой воду и включи свет в коридоре',
-  'Если в спальне холоднее 18 градусов, напиши мне',
-  'Если сработал пожарный датчик, включи свет в коридоре и напиши мне',
-]
-
 function Bubble({ children, mine = false }: { children: React.ReactNode; mine?: boolean }) {
   return (
     <div
@@ -92,25 +86,7 @@ export function ScenarioChat() {
   }
 
   return (
-    <section className="space-y-3">
-      <Bubble>Опишите правило словами. Я соберу его и перескажу, что именно будет работать, а вы подтвердите.</Bubble>
-
-      {asked.length === 0 && (
-        <div className="space-y-2">
-          {EXAMPLES.map((example, index) => (
-            <button
-              key={example}
-              type="button"
-              onClick={() => setText(example)}
-              style={{ '--i': index } as React.CSSProperties}
-              className="rise press w-full rounded-xl border border-line bg-raised/50 px-3.5 py-2.5 text-left text-[13px] text-ink-dim transition hover:border-accent/40 hover:text-ink"
-            >
-              {example}
-            </button>
-          ))}
-        </div>
-      )}
-
+    <div className="space-y-3">
       {asked.map((item, index) => (
         <Bubble key={`${index}-${item}`} mine>
           {item}
@@ -156,7 +132,7 @@ export function ScenarioChat() {
             }
           }}
           rows={2}
-          placeholder={previous ? 'Что уточнить? Например: только ночью' : 'Например: если ночью протечка, перекрой воду'}
+          placeholder={previous ? 'Что уточнить? Например: только ночью' : 'Опишите правило словами — соберу и проверю'}
           className="scroll-slim glass flex-1 resize-none rounded-2xl px-3.5 py-2.5 text-[14px] text-ink outline-none placeholder:text-ink-mute focus:border-accent/50"
         />
         <button
@@ -168,6 +144,6 @@ export function ScenarioChat() {
           <Icon name="arrowRight" size={20} />
         </button>
       </div>
-    </section>
+    </div>
   )
 }

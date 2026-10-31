@@ -45,8 +45,10 @@ ujin = UjinBridge(bus, registry, config.UJIN)
 
 @contextlib.asynccontextmanager
 async def lifespan(_app: FastAPI):
-    if not persistence.restore() and not registry.devices:
-        for device_id, family, title, room, scope, kwargs in SEED_DEVICES:
+    persistence.restore()
+    # Досеваем недостающие устройства: новые позиции сида появляются и в уже живой базе.
+    for device_id, family, title, room, scope, kwargs in SEED_DEVICES:
+        if device_id not in registry.devices:
             registry.create(family, title=title, room=room, scope=scope, device_id=device_id, **kwargs)
     if not store.rules:
         for rule in seed_rules():

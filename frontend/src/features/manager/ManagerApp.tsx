@@ -46,7 +46,7 @@ export function ManagerApp({ path, demo }: ManagerAppProps) {
   else page = <DashboardPage devices={devices} dispatch={dispatch} />
 
   return (
-    <div className="relative flex h-screen overflow-hidden bg-base text-ink">
+    <div className="relative flex h-screen overflow-hidden bg-canvas text-ink">
       <Aurora />
       <Sidebar path={path} drafts={openIncidents} />
       <main className="relative z-10 flex min-w-0 flex-1 flex-col">

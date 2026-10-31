@@ -13,7 +13,7 @@ export function Aurora({ intensity = 'soft' }: AuroraProps) {
     <div className={`pointer-events-none absolute inset-0 overflow-hidden ${opacity}`} aria-hidden="true">
       <div className="animate-aurora absolute -top-24 -left-20 size-72 rounded-full bg-accent/35 blur-[90px]" />
       <div
-        className="animate-aurora absolute top-1/3 -right-24 size-80 rounded-full bg-sev-major/25 blur-[100px]"
+        className="animate-aurora absolute top-1/3 -right-24 size-80 rounded-full bg-accent-glow/30 blur-[100px]"
         style={{ animationDelay: '-6s' }}
       />
       <div
