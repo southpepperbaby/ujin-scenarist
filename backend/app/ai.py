@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any
@@ -37,17 +38,21 @@ def _headers() -> dict:
 async def llm_json(system: str, user: str, temperature: float = 0.1, timeout: float = 40) -> dict:
     """Запрос к LLM с требованием вернуть один JSON-объект. Возвращает разобранный объект."""
     body = {
-        "model": config.LLM_MODEL,
+        "models": [config.LLM_MODEL, *config.LLM_FALLBACKS],
         "temperature": temperature,
         "response_format": {"type": "json_object"},
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
         "provider": {"data_collection": "deny"},
     }
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            r = await client.post(f"{OPENROUTER}/v1/chat/completions", headers=_headers(), json=body)
-    except httpx.HTTPError as exc:
-        raise AIUnavailable(f"LLM недоступна: {exc}") from exc
+    for attempt in range(2):                     # лимит у всех моделей сразу: одна пауза и повтор
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                r = await client.post(f"{OPENROUTER}/v1/chat/completions", headers=_headers(), json=body)
+        except httpx.HTTPError as exc:
+            raise AIUnavailable(f"LLM недоступна: {exc}") from exc
+        if r.status_code != 429:
+            break
+        await asyncio.sleep(1.5)
     if r.status_code != 200:
         raise AIUnavailable(f"LLM {r.status_code}: {r.text[:300]}")
     content = r.json()["choices"][0]["message"]["content"] or ""
