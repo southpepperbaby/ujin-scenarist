@@ -109,7 +109,8 @@ def health():
 @app.get("/api/families")
 def families():
     return [{**family_info(f), "custom": f in device_types.types,
-             "spec": device_types.types[f].model_dump(mode="json") if f in device_types.types else None}
+             "spec": device_types.types[f].model_dump(mode="json") if f in device_types.types else None,
+             "behavior": device_types.types[f].describe() if f in device_types.types else []}
             for f in sorted(REGISTRY)]
 
 

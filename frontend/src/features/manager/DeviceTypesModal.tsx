@@ -5,9 +5,11 @@ import { Button } from '../../shared/ui/Button'
 import { ErrorNote, Field, SelectInput, TextInput } from '../../shared/ui/Fields'
 import { Modal } from '../../shared/ui/Modal'
 import { useStore } from '../../store'
+import { BehaviorEditor } from './BehaviorEditor'
 import {
   GROUPS,
   TYPE_TITLES,
+  behaviorFromSpec,
   buildSpec,
   emptyRow,
   familyCode,
@@ -15,6 +17,8 @@ import {
   rowLayout,
   typesForGroup,
   validate,
+  validateBehaviors,
+  type BehaviorRow,
   type SignalRow,
 } from './device-type-form'
 
@@ -83,6 +87,11 @@ export function DeviceTypesModal({ families, startNew = false, onClose }: Device
               <p className="text-[12px] text-ink-mute">
                 {item.declaration.length} сигналов · {item.custom ? 'свой тип' : 'готовый, только чтение'}
               </p>
+              {item.behavior?.map((line) => (
+                <p key={line} className="text-[12px] text-ink-dim">
+                  {line}
+                </p>
+              ))}
             </div>
             {item.custom && (
               <>
@@ -121,6 +130,9 @@ function TypeEditor({ family, families, onClose, onBack, onSaved }: TypeEditorPr
   const [rows, setRows] = useState<SignalRow[]>(() =>
     spec ? spec.signals.map(rowFromSpec) : [{ ...emptyRow('property'), title: 'Показание', measure: '' }],
   )
+  const [behaviors, setBehaviors] = useState<BehaviorRow[]>(() =>
+    spec?.behaviors ? spec.behaviors.map((b) => behaviorFromSpec(b, rows)) : [],
+  )
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -133,16 +145,16 @@ function TypeEditor({ family, families, onClose, onBack, onSaved }: TypeEditorPr
   }
 
   const save = async () => {
-    const problem = validate(title, rows)
+    const problem = validate(title, rows) || validateBehaviors(behaviors, rows)
     if (problem) return setError(problem)
     setBusy(true)
     setError('')
     try {
       if (family) {
-        await api.updateType(buildSpec(family.family, title, rows))
+        await api.updateType(buildSpec(family.family, title, rows, behaviors))
       } else {
         const code = familyCode(title, new Set(families.map((item) => item.family)))
-        await api.createType(buildSpec(code, title, rows))
+        await api.createType(buildSpec(code, title, rows, behaviors))
       }
       await onSaved()
     } catch (e) {
@@ -207,6 +219,8 @@ function TypeEditor({ family, families, onClose, onBack, onSaved }: TypeEditorPr
             </section>
           )
         })}
+
+        <BehaviorEditor rows={rows} behaviors={behaviors} onChange={setBehaviors} />
 
         {error && <ErrorNote>{error}</ErrorNote>}
       </div>
