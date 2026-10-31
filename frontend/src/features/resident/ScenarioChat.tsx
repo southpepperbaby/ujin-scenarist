@@ -75,7 +75,7 @@ export function ScenarioChat() {
             }
           }}
           rows={2}
-          placeholder={previous ? 'Что уточнить? Например: только ночью' : 'Опишите правило словами — соберу и проверю'}
+          placeholder={previous ? 'Что уточнить? Например: только ночью' : 'Опишите правило словами, я соберу и проверю'}
           className="scroll-slim glass flex-1 resize-none rounded-2xl px-3.5 py-2.5 text-[14px] text-ink outline-none placeholder:text-ink-mute focus:border-accent/50"
         />
         <button
