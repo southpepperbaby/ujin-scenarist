@@ -1,0 +1,21 @@
+[project]
+name = "scenarist-backend"
+version = "0.1.0"
+description = "Smart-home scenario editor backend: emulators, rule engine, Ujin integration"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.8",
+    "sqlmodel>=0.0.21",
+    "httpx>=0.27",
+    "python-dotenv>=1.0",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["."]

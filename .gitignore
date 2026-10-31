@@ -7,3 +7,6 @@ __pycache__/
 .DS_Store
 dist/
 build/
+secrets/
+*.pdf
+token.txt
