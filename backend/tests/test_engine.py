@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 
 import pytest
 
@@ -127,5 +128,65 @@ async def test_higher_priority_rule_wins_conflict():
 def test_export_to_ujin_autoscript():
     out = to_ujin_autoscript(leak_rule(), {"leak": "170", "valve": "171"})
     assert out["condition"] == "when:device-170:leak=1"
-    assert out["set_signal"] == "device-171:valve:0"
-    assert "action notify" in out["unsupported"]
+    # Платформа не хранит 0: команда «закрыть клапан» уходит как 0.001, как и публикуемые сигналы.
+    assert out["set_signal"] == "device-171:valve:0.001"
+    assert "действие «notify»" in out["unsupported"]
+
+
+def test_export_zero_in_condition_goes_as_0001():
+    rule = leak_rule(actions=[SetSignal(device_id="valve", signal="valve", value=1)])
+    rule.trigger = Trigger(device_id="leak", signal="leak", op="eq", value=0)
+    out = to_ujin_autoscript(rule, {"leak": "170", "valve": "171"})
+    assert out["condition"] == "when:device-170:leak=0.001"
+    assert out["set_signal"] == "device-171:valve:1"
+
+
+@pytest.mark.asyncio
+async def test_failing_action_is_logged_and_rest_of_rule_runs():
+    bus, reg, engine = make(leak_rule())
+    real = reg.command
+
+    def broken(device_id, signal, value):
+        if device_id == "valve":
+            raise RuntimeError("эмулятор упал")
+        return real(device_id, signal, value)
+
+    reg.command = broken
+    await wet(bus, reg, engine)
+    run = engine.runs[-1]
+    assert run["status"] == "partial"
+    assert run["actions"][0]["status"] == "error" and "эмулятор упал" in run["actions"][0]["detail"]
+    assert run["actions"][1]["status"] == "ok"
+    assert [n["target"] for n in engine.notifications] == ["concierge"]
+
+
+@pytest.mark.asyncio
+async def test_engine_loop_survives_a_bad_event():
+    bus, reg, engine = make(leak_rule())
+    calls = []
+    real = engine.on_signal
+
+    def flaky(event):
+        calls.append(event)
+        if len(calls) == 1:
+            raise RuntimeError("сбой разбора")
+        return real(event)
+
+    engine.on_signal = flaky
+    task = asyncio.create_task(engine.run())
+    await asyncio.sleep(0)
+    reg.set_signal("light", "lamp", 1)          # первое событие роняет разбор
+    reg.inject("leak", "wet", True)
+    reg.step_all()                               # второе должно дойти до правила
+    # Цикл движка крутится в фоне: ждём, пока запуск правила завершится, а не опустеет список задач.
+    for _ in range(200):
+        await asyncio.sleep(0.01)
+        if engine.runs and engine.runs[-1]["status"] != "running":
+            break
+    alive = not task.done()
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+    assert alive, "цикл движка должен пережить сбой на событии"
+    assert engine.runs[-1]["rule_id"] == "leak" and engine.runs[-1]["status"] == "ok"
+    assert any(e.kind == "rule" and "сбой разбора" in e.data.get("message", "") for e in bus.history)

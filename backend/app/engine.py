@@ -55,8 +55,13 @@ class Engine:
         try:
             while True:
                 event = await q.get()
-                if event.kind == "signal":
+                if event is None or event.kind != "signal":
+                    continue
+                try:
                     self.on_signal(event)
+                except Exception as exc:  # noqa: BLE001 — одно кривое событие не должно остановить движок
+                    self.bus.emit("rule", event.device_id, phase="error",
+                                  message=f"Движок не разобрал событие {event.data.get('signal')}: {exc}")
         finally:
             self.bus.unsubscribe(q)
 
@@ -68,8 +73,12 @@ class Engine:
             t = rule.trigger
             if t.device_id != event.device_id or t.signal != event.data.get("signal"):
                 continue
-            now_ok = compare(t.op, event.data.get("value"), t.value, event.data.get("prev"))
-            was_ok = t.op != "changed" and compare(t.op, event.data.get("prev"), t.value)
+            try:
+                now_ok = compare(t.op, event.data.get("value"), t.value, event.data.get("prev"))
+                was_ok = t.op != "changed" and compare(t.op, event.data.get("prev"), t.value)
+            except Exception as exc:  # noqa: BLE001 — сбой сравнения у одного правила не мешает остальным
+                self._record(rule, event, status="skipped", reason=f"не удалось проверить триггер: {exc}")
+                continue
             if not now_ok or was_ok:
                 continue
             reason = self._throttled(rule)
@@ -116,7 +125,11 @@ class Engine:
                 action = action.model_copy(update={
                     "level": "critical",
                     "message": f"{action.message} ВНИМАНИЕ: не выполнено автоматически ({lost}), нужна проверка."})
-            result = await self._perform(rule, action, run)
+            try:
+                result = await self._perform(rule, action, run)
+            except Exception as exc:  # noqa: BLE001 — сбой одного действия: в журнал, остальные выполняются
+                result = {"type": getattr(action, "type", "?"), "status": "error", "detail": f"сбой: {exc}",
+                          "device_id": getattr(action, "device_id", None)}
             run["actions"].append(result)
         # Конфликт приоритетов тоже провал: действие не выполнено, хоть и по уважительной причине.
         failed = [a for a in run["actions"] if a["status"] in ("error", "conflict")]

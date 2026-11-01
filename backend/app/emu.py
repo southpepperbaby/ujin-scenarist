@@ -292,7 +292,10 @@ class DeviceRegistry:
     async def run(self) -> None:
         while True:
             if self.running:
-                self.step_all(1)
+                try:
+                    self.step_all(1)
+                except Exception as exc:  # noqa: BLE001 — сбой вне физики устройства (шина, подписчик) не гасит тики
+                    self.bus.emit("log", None, message=f"Сбой тика симуляции: {exc}")
             await asyncio.sleep(self.tick_seconds / max(self.speed, 0.01))
 
     def _apply(self, managed: Managed, fn: Callable[[], None], source: str) -> dict:

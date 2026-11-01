@@ -167,6 +167,21 @@ class RuleStore:
                 self.storage.delete("rules", rule_id)
 
 
+def _wire(value: Any) -> Any:
+    """Мина №1 PULL-CLIENT: платформа не хранит 0 (empty()), сигналы публикуются как 0.001.
+
+    Сценарий должен говорить на том же языке, иначе условие `=0` на стенде никогда не станет истинным,
+    а команда `:0` не дойдёт. Тот же приём, что core.wire_value при публикации сигналов.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value == 0:
+        return 0.001
+    if isinstance(value, str) and value.strip() in ("0", "0.0"):
+        return 0.001
+    return value
+
+
 def to_ujin_autoscript(rule: Rule, serial_of: dict[str, str], prefix: str = "") -> dict:
     """Экспорт в формат autoscripts/edit: `when:device-<sn>:<signal>=<v>` / `device-<sn>:<signal>:<v>`.
 
@@ -190,13 +205,13 @@ def to_ujin_autoscript(rule: Rule, serial_of: dict[str, str], prefix: str = "") 
         elif a.device_id not in serial_of:
             unsupported.append(f"устройства {a.device_id} нет на стенде")
         else:
-            sets.append(f"device-{serial_of[a.device_id]}:{a.signal}:{a.value}")
+            sets.append(f"device-{serial_of[a.device_id]}:{a.signal}:{_wire(a.value)}")
     if t.device_id not in serial_of:
         unsupported.append(f"устройства {t.device_id} из блока «когда» нет на стенде")
     return {
         "scenario_type": "trigger",
         "title": rule.title,
-        "condition": f"when:device-{serial_of.get(t.device_id, '?')}:{prefix}{t.signal}={t.value}",
+        "condition": f"when:device-{serial_of.get(t.device_id, '?')}:{prefix}{t.signal}={_wire(t.value)}",
         "set_signal": ";".join(sets),
         "unsupported": unsupported,
     }
