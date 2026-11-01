@@ -35,3 +35,6 @@ PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://127.0.0.1:8000").rst
 WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "scenarist-demo-secret")
 LLM_REASONING = os.environ.get("LLM_REASONING", "off")
 JEV_MODEL = os.environ.get("JEV_MODEL", "~typesafe/jev-latest")
+# CORS выключен по умолчанию: статику и API отдаёт один nginx, запросы идут с того же адреса.
+# Для стороннего фронтенда перечислите адреса через запятую, звёздочку не принимаем.
+ALLOWED_ORIGINS = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip() != ""]

@@ -53,6 +53,13 @@ export const NAV_ITEMS: NavItem[] = [
     title: 'Песочница',
     subtitle: 'Эмуляторы Ujin: ручные воздействия и живая шина событий',
   },
+  {
+    to: '/uk/ujin',
+    label: 'Платформа',
+    icon: 'activity',
+    title: 'Платформа Ujin OS',
+    subtitle: 'Публикация сигналов на стенд, привязка устройств и сценарии платформы',
+  },
 ]
 
 export function navFor(path: string): NavItem {

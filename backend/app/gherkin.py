@@ -10,14 +10,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .dictionaries import OP_SIGNS
 from .emu import DeviceRegistry
 from .rules import Notify, Rule, SetSignal, TimeCondition, Trigger
 from .simulate import simulate
 
 KEYWORDS = r"(Допустим|Дано|Пусть|Когда|Если|Тогда|То|И|Но|А также|К тому же)"
-OPS_WORDS = OP_SIGNS
-WORD_OPS = {v: k for k, v in OPS_WORDS.items()}
 
 
 # ---------- генерация ----------

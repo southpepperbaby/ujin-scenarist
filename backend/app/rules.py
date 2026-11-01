@@ -13,11 +13,12 @@ from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, Field, field_validator
 
-from .dictionaries import CATEGORY_WORDS, OP_TITLES  # noqa: F401  OP_TITLES берут из rules
+from .dictionaries import CATEGORY_WORDS
 
+# Задержка действия: сутки с запасом. Без верхней границы правило из чата вешало бы прогон насовсем.
+MAX_DELAY_S = 86_400
 NOW = "__now__"        # триггер разовой команды: «сделай сейчас», а не «когда случится»
 Op = Literal["eq", "ne", "gt", "gte", "lt", "lte", "changed"]
-
 
 
 class SignalRef(BaseModel):
@@ -63,7 +64,7 @@ class SetSignal(BaseModel):
     device_id: str
     signal: str
     value: Any
-    delay_s: float = 0
+    delay_s: float = Field(0, ge=0, le=MAX_DELAY_S)
 
 
 class Notify(BaseModel):
@@ -71,7 +72,7 @@ class Notify(BaseModel):
     target: Literal["resident", "concierge"] = "resident"
     message: str
     level: Literal["info", "warning", "critical"] = "info"
-    delay_s: float = 0
+    delay_s: float = Field(0, ge=0, le=MAX_DELAY_S)
 
 
 class Dispatch(BaseModel):
@@ -80,7 +81,7 @@ class Dispatch(BaseModel):
     category: str | None = None
     device_id: str | None = None            # к чему вызывать мастера; нет: устройство из триггера или действий
     note: str = ""
-    delay_s: float = 0
+    delay_s: float = Field(0, ge=0, le=MAX_DELAY_S)
 
     @field_validator("category", mode="before")
     @classmethod
@@ -104,10 +105,10 @@ class Rule(BaseModel):
     description: str = ""
     scope: Literal["apartment", "building"] = "apartment"
     owner: Literal["resident", "uk"] = "resident"
-    priority: int = 50
+    priority: int = Field(50, ge=0, le=1000)
     enabled: bool = True
     status: Literal["draft", "tested", "active"] = "draft"   # enabled: включено ли; status: как далеко прошло проверку
-    cooldown_s: float = 3
+    cooldown_s: float = Field(3, ge=0, le=86_400)
     trigger: Trigger
     conditions: list[AnyCondition] = []
     actions: list[Action] = Field(min_length=1)
@@ -171,21 +172,27 @@ def to_ujin_autoscript(rule: Rule, serial_of: dict[str, str], prefix: str = "") 
 
     Платформа понимает только равенство в условии и только выставление сигнала в действии,
     остальное (условия, уведомления, заявки) исполняет наш движок. Это честно отражаем в `unsupported`.
+
+    Имя сигнала пишется по-разному с двух сторон (мина №6 из START.md организаторов): в условии
+    платформа ждёт полное имя с классом модели (`integrations_devices_leak`), в действии — короткое
+    (`valve`). Префикс с действия снимаем, иначе команда «вниз» не найдёт сигнал.
     """
     t = rule.trigger
     unsupported = []
     if t.op != "eq":
-        unsupported.append(f"trigger op {t.op}")
+        unsupported.append(f"триггер со сравнением «{t.op}»")
     if rule.conditions:
-        unsupported.append("conditions")
+        unsupported.append("условия блока «если»")
     sets = []
     for a in rule.actions:
-        if isinstance(a, SetSignal) and a.device_id in serial_of:
-            sets.append(f"device-{serial_of[a.device_id]}:{prefix}{a.signal}:{a.value}")
+        if not isinstance(a, SetSignal):
+            unsupported.append(f"действие «{a.type}»")
+        elif a.device_id not in serial_of:
+            unsupported.append(f"устройства {a.device_id} нет на стенде")
         else:
-            unsupported.append(f"action {a.type}")
+            sets.append(f"device-{serial_of[a.device_id]}:{a.signal}:{a.value}")
     if t.device_id not in serial_of:
-        unsupported.append("trigger device is not on the platform")
+        unsupported.append(f"устройства {t.device_id} из блока «когда» нет на стенде")
     return {
         "scenario_type": "trigger",
         "title": rule.title,

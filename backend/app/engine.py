@@ -76,11 +76,20 @@ class Engine:
             if reason:
                 self._record(rule, event, status="skipped", reason=reason)
                 continue
-            task = asyncio.create_task(self.execute(rule, event))
+            task = asyncio.create_task(self.execute(rule, event), name=f"rule:{rule.id}")
             self._tasks.add(task)
-            task.add_done_callback(self._tasks.discard)
+            task.add_done_callback(self._forget)
             started.append(task)
         return started
+
+    def _forget(self, task: asyncio.Task) -> None:
+        """Снять задачу с учёта и забрать исключение: иначе сбой правила теряется в логе asyncio."""
+        self._tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            self.bus.emit("rule", None, phase="error", message=f"Исполнение правила прервалось: {exc}")
 
     async def idle(self) -> None:
         """Дождаться всех запущенных исполнений (тесты и прогон в песочнице)."""
@@ -130,6 +139,15 @@ class Engine:
         return compare(cond.op, sig.value, cond.value), f"{sig.title} = {sig.value}"
 
     async def _perform(self, rule: Rule, action, run: dict) -> dict:
+        try:
+            return await self._perform_one(rule, action, run)
+        except Exception as exc:  # noqa: BLE001 — сбой одного действия не отменяет остальные
+            self.bus.emit("rule", getattr(action, "device_id", None), rule_id=rule.id, phase="error",
+                          message=f"«{rule.title}»: действие {getattr(action, 'type', '?')} сорвалось, {exc}")
+            return {"type": getattr(action, "type", "?"), "status": "error",
+                    "device_id": getattr(action, "device_id", None), "detail": str(exc) or exc.__class__.__name__}
+
+    async def _perform_one(self, rule: Rule, action, run: dict) -> dict:
         if isinstance(action, SetSignal):
             return await self._set_signal(rule, action)
         if isinstance(action, Notify):
@@ -137,11 +155,8 @@ class Engine:
         if isinstance(action, Dispatch):
             if self.dispatch_hook is None:
                 return {"type": "dispatch", "status": "error", "detail": "автодиспетчер не подключён"}
-            try:
-                out = await self.dispatch_hook(rule, action, run)
-                return {"type": "dispatch", "status": "ok", **out}
-            except Exception as exc:  # noqa: BLE001 — ошибка подрядчика не должна ронять правило
-                return {"type": "dispatch", "status": "error", "detail": str(exc)}
+            out = await self.dispatch_hook(rule, action, run)
+            return {"type": "dispatch", "status": "ok", **out}
         return {"type": getattr(action, "type", "?"), "status": "error", "detail": "unknown action"}
 
     async def _set_signal(self, rule: Rule, a: SetSignal) -> dict:
@@ -163,7 +178,8 @@ class Engine:
                 last_error = str(exc)
                 self.bus.emit("rule", a.device_id, rule_id=rule.id, phase="retry",
                               message=f"«{rule.title}»: {exc}, попытка {attempt}/{RETRIES}")
-                await asyncio.sleep(self.retry_pause * attempt)
+                if attempt < RETRIES:          # после последней попытки ждать уже нечего
+                    await asyncio.sleep(self.retry_pause * attempt)
             except (KeyError, PermissionError) as exc:
                 return {**base, "status": "error", "detail": str(exc), "attempts": attempt}
         return {**base, "status": "error", "detail": last_error, "attempts": RETRIES}

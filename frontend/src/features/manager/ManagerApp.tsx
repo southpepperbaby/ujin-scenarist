@@ -13,6 +13,7 @@ import { SandboxPage } from './SandboxPage'
 import { Sidebar } from './Sidebar'
 import { TicketsPage } from './TicketsPage'
 import { TopBar } from './TopBar'
+import { UjinPage } from './UjinPage'
 
 type ManagerAppProps = {
   path: string
@@ -41,6 +42,7 @@ export function ManagerApp({ path, demo }: ManagerAppProps) {
   else if (path === '/uk/devices') page = <DevicesPage devices={devices} />
   else if (path === '/uk/rules') page = <RulesPage devices={devices} />
   else if (path === '/uk/sandbox') page = <SandboxPage devices={devices} />
+  else if (path === '/uk/ujin') page = <UjinPage />
   else page = <DashboardPage devices={devices} dispatch={dispatch} />
 
   return (

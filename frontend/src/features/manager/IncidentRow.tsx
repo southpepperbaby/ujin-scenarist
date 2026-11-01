@@ -92,7 +92,7 @@ export const IncidentRow = forwardRef<HTMLElement, IncidentRowProps>(function In
                 {verdict.source === 'jev' ? 'Jev' : 'таблица'}: {verdict.category}
               </span>
               <span>уверенность {formatPercent(verdict.confidence)}</span>
-              <span>риск ущерба {formatPercent(verdict.damage)}</span>
+              {verdict.false_alarm !== null && <span>ложное срабатывание {formatPercent(verdict.false_alarm)}</span>}
               <span className="text-ink-mute">{formatWhen(incident.ts)}</span>
             </p>
           )}

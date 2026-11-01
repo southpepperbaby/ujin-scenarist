@@ -282,7 +282,12 @@ class DeviceRegistry:
         for managed in list(self.devices.values()):
             if not managed.online:
                 continue
-            self._apply(managed, lambda m=managed: m.device.step(dt), source="tick")
+            try:
+                self._apply(managed, lambda m=managed: m.device.step(dt), source="tick")
+            except Exception as exc:  # noqa: BLE001 — своя физика из конструктора не должна остановить дом
+                self.bus.emit("log", managed.id,
+                              message=f"{managed.title}: сбой физики на тике, устройство отключено ({exc})")
+                self.set_online(managed.id, False)
 
     async def run(self) -> None:
         while True:

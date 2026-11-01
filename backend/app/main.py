@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from typing import Any
 
-import json
-
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
@@ -15,6 +14,7 @@ from pydantic import BaseModel, Field
 from . import ai, config, gherkin, nl
 from .bus import EventBus
 from .device_types import GROUP_TITLES, DeviceType, DeviceTypes
+from .dictionaries import CATEGORY_TITLES
 from .dispatcher import FAULTS, Dispatcher, Policy
 from .emu import REGISTRY, DeviceRegistry, family_info
 from .engine import Engine
@@ -22,12 +22,12 @@ from .linter import lint, summary
 from .rule_check import check_rule
 from .rules import NOW, Rule, RuleStore
 from .seed import SEED_DEVICES, seed_rules
-from .simulate import simulate
+from .simulate import NoStimulus, simulate
 from . import mock_contractor
 from .mock_contractor import router as mock_contractor_router
 from .persistence import Persistence
 from .storage import Storage
-from .tickets import (CATEGORY_TITLES, STATUS_TITLES, Category, Contractor, Ticket, TicketService, verify,
+from .tickets import (STATUS_TITLES, Category, Contractor, Ticket, TicketService, verify,
                       visible_to, visible_to_role)
 from .ujin_bridge import UjinBridge
 
@@ -43,6 +43,18 @@ device_types = DeviceTypes(storage, faults=FAULTS)          # до restore: ус
 mock_contractor.load(storage)
 engine.dispatch_hook = dispatcher.from_rule
 ujin = UjinBridge(bus, registry, config.UJIN)
+log = logging.getLogger("scenarist")
+
+
+def _supervise(task: asyncio.Task) -> None:
+    """Фоновая задача не должна умирать молча: исключение попадает в лог и в шину событий."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is None:
+        return
+    log.exception("фоновая задача %s упала", task.get_name(), exc_info=exc)
+    bus.emit("log", None, message=f"Сбой фоновой задачи «{task.get_name()}»: {exc}")
 
 
 @contextlib.asynccontextmanager
@@ -58,16 +70,24 @@ async def lifespan(_app: FastAPI):
         if rule.id not in seeded and rule.id not in store.rules:
             store.put(rule)
     storage.put("settings", "seeded_rules", sorted(seeded | {rule.id for rule in seed_rules()}))
-    tasks = [asyncio.create_task(c) for c in (
-        registry.run(), engine.run(), dispatcher.run(), ujin.run(), persistence.run(), ai.keep_warm())]
+    jobs = {"tick": registry.run(), "engine": engine.run(), "dispatcher": dispatcher.run(),
+            "ujin": ujin.run(), "persistence": persistence.run(), "ai-keepalive": ai.keep_warm()}
+    tasks = [asyncio.create_task(coro, name=name) for name, coro in jobs.items()]
+    for task in tasks:
+        task.add_done_callback(_supervise)
     yield
     for task in tasks:
         task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
     persistence.snapshot()
 
 
 app = FastAPI(title="HOMIE AI API", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+# Фронтенд и API отдаёт один nginx, поэтому запросы идут с того же адреса и CORS не нужен.
+# Список открывается только на время разработки (vite на другом порту) через ALLOWED_ORIGINS.
+if config.ALLOWED_ORIGINS:
+    app.add_middleware(CORSMiddleware, allow_origins=config.ALLOWED_ORIGINS,
+                       allow_methods=["*"], allow_headers=["*"])
 app.include_router(mock_contractor_router)
 
 
@@ -277,8 +297,11 @@ class SimRequest(BaseModel):
 
 @app.post("/api/simulate")
 async def simulate_rule(body: SimRequest):
-    report = await simulate(body.rule, registry, store.all(), ticks=max(1, min(body.ticks, 120)),
-                            offline=body.offline, with_others=body.with_others, at=body.at)
+    try:
+        report = await simulate(body.rule, registry, store.all(), ticks=max(1, min(body.ticks, 120)),
+                                offline=body.offline, with_others=body.with_others, at=body.at)
+    except NoStimulus as exc:
+        raise HTTPException(422, str(exc))
     report["lint"] = summary(lint(body.rule, store.all(), registry))
     stored = store.rules.get(body.rule.id)
     if stored and report["passed"] and report["lint"]["ok"] and stored.status == "draft":
@@ -295,13 +318,17 @@ def rule_feature(rule_id: str):
 
 class FeatureRun(BaseModel):
     rule: Rule
-    feature: str | None = None
+    # Каждый сценарий — отдельный прогон на копии дома, поэтому текст ограничен по длине.
+    feature: str | None = Field(None, max_length=20_000)
 
 
 @app.post("/api/gherkin/run")
 async def run_feature(body: FeatureRun):
     text = body.feature or gherkin.to_feature(body.rule, registry)
-    report = await gherkin.run_feature(text, body.rule, registry, store.all())
+    try:
+        report = await gherkin.run_feature(text, body.rule, registry, store.all())
+    except NoStimulus as exc:
+        raise HTTPException(422, str(exc))
     report["text"] = text
     return report
 
@@ -312,9 +339,10 @@ def explain_rule(rule_id: str):
 
 
 class NLRequest(BaseModel):
-    text: str
+    """Просьба человека. Длина ограничена: текст уходит в платную модель вместе с каталогом дома."""
+    text: str = Field(min_length=1, max_length=2000)
     role: str = "resident"
-    previous: str | None = None          # прошлая просьба, когда человек нажал «нет, дополнить»
+    previous: str | None = Field(None, max_length=4000)   # прошлая просьба, если нажали «нет, дополнить»
 
 
 class NLConfirm(BaseModel):
@@ -374,24 +402,32 @@ def export_rule(rule_id: str):
     return ujin.export(_rule(rule_id))
 
 
+# Нижняя граница лимитов не нулевая: срез [-0:] вернул бы весь журнал вместо пустого списка.
+Limit = Query(50, ge=1, le=500)
+
+
 @app.get("/api/runs")
-def runs(limit: int = 50):
+def runs(limit: int = Limit):
     return list(engine.runs)[-limit:]
 
 
 @app.get("/api/notifications")
-def notifications(target: str | None = None, limit: int = 50):
+def notifications(target: str | None = None, limit: int = Limit):
     rows = [n for n in engine.notifications if target in (None, n["target"])]
     return rows[-limit:]
 
 
 # ---------- инциденты, заявки, подрядчики ----------
 
+def _incident_level(incident: dict) -> int:
+    return (incident.get("verdict") or {}).get("level", 0)
+
+
 @app.get("/api/incidents")
-def incidents(limit: int = 50, role: str | None = None):
+def incidents(limit: int = Limit, role: str | None = None):
     rows = sorted(dispatcher.incidents.values(), key=lambda i: i["ts"])
-    level = lambda i: (i.get("verdict") or {}).get("level", 0)  # noqa: E731
-    return [i for i in rows if role is None or visible_to_role(i["scope"], level(i), role)][-limit:]
+    visible = [i for i in rows if role is None or visible_to_role(i["scope"], _incident_level(i), role)]
+    return visible[-limit:]
 
 
 @app.get("/api/tickets")
@@ -440,18 +476,28 @@ async def move_ticket(ticket_id: str, body: TicketMove):
     return t.model_dump(mode="json")
 
 
+class ContractorCallback(BaseModel):
+    """Тело входящего webhook подрядчика. Проверяем схемой: чужая система шлёт что угодно."""
+    ticket_id: str
+    status: str
+    note: str = ""
+
+
 @app.post("/api/webhooks/contractors/{contractor_id}")
 async def contractor_webhook(contractor_id: str, request: Request):
     """Входящий webhook: подрядчик сообщает статус заявки. Подпись обязательна."""
     body = await request.body()
     if not verify(body, request.headers.get("X-Scenarist-Signature")):
         raise HTTPException(401, "bad signature")
-    data = json.loads(body)
-    t = tickets.tickets.get(data.get("ticket_id"))
+    try:
+        data = ContractorCallback.model_validate_json(body)
+    except ValueError as exc:
+        raise HTTPException(400, f"bad payload: {exc}")
+    t = tickets.tickets.get(data.ticket_id)
     if t is None or t.contractor_id != contractor_id:
         raise HTTPException(404, "ticket not found for this contractor")
     try:
-        t = await tickets.transition(t.id, data["status"], f"подрядчик «{t.contractor_name}»", data.get("note", ""))
+        t = await tickets.transition(t.id, data.status, f"подрядчик «{t.contractor_name}»", data.note)
     except ValueError as exc:
         raise HTTPException(409, str(exc))
     return {"ok": True, "status": t.status}
@@ -511,6 +557,12 @@ async def ujin_scripts():
     return await asyncio.to_thread(ujin.platform_scripts)
 
 
+@app.get("/api/ujin/export")
+def ujin_export_all():
+    """Все правила в формате autoscripts разом: кабинет показывает, что платформа примет, а что нет."""
+    return [{"rule_id": r.id, "title": r.title, "enabled": r.enabled, **ujin.export(r)} for r in store.all()]
+
+
 # ---------- симуляция и события ----------
 
 @app.get("/api/sim")
@@ -535,7 +587,7 @@ def sim_step(n: int = 1):
 
 
 @app.get("/api/events")
-def events(limit: int = 100):
+def events(limit: int = Query(100, ge=1, le=1000)):
     return bus.recent(limit)
 
 

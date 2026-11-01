@@ -13,6 +13,10 @@ from .emu import INPUTS, DeviceRegistry
 from .engine import Engine
 from .rules import Rule, RuleStore, Trigger
 
+class NoStimulus(ValueError):
+    """Правило нечем запустить: устройства или сигнала из блока «когда» в доме нет."""
+
+
 # Как физически вызвать триггер: (семейство, сигнал) → (вход, значение).
 STIMULI = {
     ("leak", "leak"): ("wet", True),
@@ -106,7 +110,12 @@ async def simulate(rule: Rule, live: DeviceRegistry, rules: list[Rule], ticks: i
 
 
 def _stimulate(t: Trigger, reg: DeviceRegistry) -> dict:
+    if t.device_id not in reg.devices:
+        # Разовая команда (device_id == NOW) и правило по удалённому устройству: прогонять нечего.
+        raise NoStimulus(f"прогон невозможен: в блоке «когда» нет устройства {t.device_id}")
     managed = reg.get(t.device_id)
+    if t.signal not in managed.device.signals:
+        raise NoStimulus(f"прогон невозможен: у «{managed.title}» нет сигнала {t.signal}")
     hit = STIMULI.get((managed.family, t.signal))
     if hit and hit[0] in INPUTS.get(managed.family, {}):
         reg.inject(t.device_id, hit[0], hit[1])

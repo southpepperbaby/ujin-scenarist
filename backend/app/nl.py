@@ -8,7 +8,7 @@
 3. Ответ разворачивается обратно в реальные id и валидируется Pydantic-схемой правила. При ошибке
    схемы LLM получает текст ошибки и одну попытку исправиться.
 4. Готовое правило проходит линтер, показывается пересказом из JSON и ждёт «да, подтвердить».
-5. На вопрос о доме отвечают данные (answer_question), а не модель.
+5. На вопрос о доме отвечают данные (house_summary), а не модель.
 """
 from __future__ import annotations
 
@@ -17,10 +17,10 @@ import json
 from pydantic import ValidationError
 
 from . import ai
-from .dictionaries import CATEGORY_TITLES
+from .dictionaries import CATEGORY_TITLES, OP_TITLES
 from .emu import DeviceRegistry
 from .linter import lint, summary
-from .rules import NOW, OP_TITLES, Rule, SetSignal
+from .rules import NOW, Rule, SetSignal
 
 SYSTEM = """Ты компилятор сценариев умного дома. Переводишь просьбу человека в JSON по схеме.
 Используй ТОЛЬКО устройства и сигналы из каталога. Значения бери из layout или диапазона сигнала.
@@ -53,7 +53,7 @@ dispatch означает заявку подрядчику (сантехник,
 Если просьбу нельзя выполнить имеющимися устройствами, верни {"error": "почему"}."""
 
 
-def catalog(registry: DeviceRegistry, alias, role: str) -> list[dict]:
+def catalog(registry: DeviceRegistry, alias) -> list[dict]:
     """Каталог для LLM: псевдонимы вместо id, без серийников и привязок к стенду.
 
     Общедомовые устройства видит и житель: так он может сообщить «шлагбаум не закрывается до конца».
@@ -83,18 +83,22 @@ async def compile_text(text: str, registry: DeviceRegistry, rules: list[Rule], r
     if previous:
         text = f"{previous}\nУточнение: {text}"
     p = ai.Pseudonymizer()
-    cat = catalog(registry, p.alias, role)
+    cat = catalog(registry, p.alias)
     user = f"Каталог устройств:\n{json.dumps(cat, ensure_ascii=False)}\n\nПросьба: {text}"
 
     last_error = ""
     for attempt in range(2):
         prompt = user if not last_error else f"{user}\n\nПрошлый ответ не прошёл проверку: {last_error}. Исправь."
-        raw = await ai.llm_json(SYSTEM, prompt)
-        kind = raw.get("intent") if raw.get("intent") in ("rule", "command", "question") else (
-            "rule" if raw.get("trigger") else "command")
+        try:
+            raw = await ai.llm_json(SYSTEM, prompt)
+        except ValueError as exc:
+            # Модель ответила не JSON. Это не отказ сервиса: вторую попытку делаем, потом сдаёмся текстом.
+            last_error = f"ответ не разобрался как JSON: {exc}"
+            continue
+        kind = _intent_of(raw)
         intent = {"intent": kind, "source": "llm"}
         if kind == "question":
-            return {"intent": intent, "answer": answer_question(text, registry), "rule": None}
+            return {"intent": intent, "answer": house_summary(registry), "rule": None}
         if "error" in raw and not raw.get("actions"):
             return {"intent": intent, "rule": None, "error": raw["error"]}
         try:
@@ -102,13 +106,22 @@ async def compile_text(text: str, registry: DeviceRegistry, rules: list[Rule], r
         except (ValidationError, KeyError, TypeError, ValueError) as exc:
             last_error = str(exc)[:500]
             continue
-        check = summary(lint(rule, rules, registry)) if rule.trigger.device_id != NOW else {"ok": True,
-                                                                                                    "issues": []}
+        # Разовую команду линтер не проверяет: у неё нет события, только действия здесь и сейчас.
+        check = {"ok": True, "issues": []} if rule.trigger.device_id == NOW else summary(lint(rule, rules, registry))
         # Пересказ строится только из собранного правила: человек подтверждает то, что будет исполнено,
         # а не то, что модель думает о своём ответе. Объяснение от LLM не используется намеренно.
         return {"intent": intent, "text": text, "rule": rule.model_dump(mode="json"), "lint": check,
                 "explanation": explain(rule, registry), "attempts": attempt + 1}
-    return {"intent": {"intent": "rule", "source": "llm"}, "rule": None, "error": f"модель не смогла собрать правило по схеме: {last_error}"}
+    return {"intent": {"intent": "rule", "source": "llm"}, "rule": None,
+            "error": f"модель не смогла собрать правило по схеме: {last_error}"}
+
+
+def _intent_of(raw: dict) -> str:
+    """Что хотел человек. Модель обычно пишет это сама, иначе судим по наличию события."""
+    stated = raw.get("intent")
+    if stated in ("rule", "command", "question"):
+        return stated
+    return "rule" if raw.get("trigger") else "command"
 
 
 def _to_rule(raw: dict, p: ai.Pseudonymizer, role: str, intent: str, text: str) -> Rule:
@@ -191,8 +204,12 @@ def explain(rule: Rule, registry: DeviceRegistry) -> str:
     return f"{text}: {'; '.join(acts) or 'ничего не делать'}."
 
 
-def answer_question(text: str, registry: DeviceRegistry) -> str:
-    """Короткая сводка состояния дома: на вопрос отвечаем данными, а не фантазией модели."""
+def house_summary(registry: DeviceRegistry) -> str:
+    """Сводка состояния дома: на вопрос отвечаем данными, а не фантазией модели.
+
+    Сводка одна на любой вопрос: это честнее, чем выдумывать ответ, которого в данных нет.
+    Разбор конкретного вопроса («какая температура в спальне») — следующий шаг, не MVP.
+    """
     alarms = [title for m in registry.devices.values() for title in m.alarms()]
     offline = [m.title for m in registry.devices.values() if not m.online]
     parts = ["Аварий нет." if not alarms else "Сейчас: " + ", ".join(alarms) + "."]

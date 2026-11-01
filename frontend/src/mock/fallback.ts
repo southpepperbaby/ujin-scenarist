@@ -117,7 +117,7 @@ export const FALLBACK_RULES: Rule[] = [
   },
   {
     id: 'leaving-home', title: 'Ухожу из дома', scope: 'apartment', owner: 'resident', priority: 1,
-    enabled: false, status: 'checked', cooldown_s: 0,
+    enabled: false, status: 'draft', cooldown_s: 0,
     description: 'По кнопке «Ухожу» гашу свет и опускаю температуру.',
     trigger: { type: 'signal', device_id: 'light-4', signal: 'lamp', op: 'changed', value: null },
     conditions: [],
@@ -158,9 +158,8 @@ export const FALLBACK_INCIDENTS: Incident[] = [
       'Уверенность 94% выше порога 85%: заявка уходит сама.',
     ],
     verdict: {
-      source: 'jev', category: 'plumbing', level: 3, confidence: 0.94, damage: 0.92, people: 0.08,
-      false_alarm: 0.04,
-      reasons: ['Jev: подрядчик «Сантехника и водоснабжение», уровень «критично», риск ущерба 92%.'],
+      source: 'jev', category: 'plumbing', level: 3, confidence: 0.94, false_alarm: 0.04,
+      reasons: ['Jev: подрядчик «Сантехника и водоснабжение», уровень «критично», ложное срабатывание 4%.'],
     },
   },
   {
@@ -169,8 +168,7 @@ export const FALLBACK_INCIDENTS: Incident[] = [
     decision: 'auto', ticket_id: 'T-1042', rule_id: null,
     reasoning: ['Кабина пуста, людей внутри нет.', 'Уверенность 88%: заявка уходит сама.'],
     verdict: {
-      source: 'jev', category: 'lift', level: 2, confidence: 0.88, damage: 0.41, people: 0.12,
-      false_alarm: 0.05, reasons: ['Jev: подрядчик «Лифтовое хозяйство», уровень «мажор».'],
+      source: 'jev', category: 'lift', level: 2, confidence: 0.88, false_alarm: 0.05, reasons: ['Jev: подрядчик «Лифтовое хозяйство», уровень «мажор».'],
     },
   },
   {
@@ -179,8 +177,7 @@ export const FALLBACK_INCIDENTS: Incident[] = [
     ticket_id: null, rule_id: null,
     reasoning: ['Уверенность 72% между порогами: решение за диспетчером.'],
     verdict: {
-      source: 'jev', category: 'access', level: 1, confidence: 0.72, damage: 0.1, people: 0.02,
-      false_alarm: 0.3, reasons: ['Jev: подрядчик «Ворота, шлагбаум, СКУД», уровень «минор».'],
+      source: 'jev', category: 'access', level: 1, confidence: 0.72, false_alarm: 0.3, reasons: ['Jev: подрядчик «Ворота, шлагбаум, СКУД», уровень «минор».'],
     },
   },
 ]

@@ -22,23 +22,23 @@ import asyncio
 import time
 import uuid
 from datetime import datetime
+from typing import Any
+
+from pydantic import BaseModel
 
 from . import ai
 from .bus import Event, EventBus
-from .dictionaries import CATEGORY_CRITERIA, FAULTS
+from .dictionaries import CATEGORY_CRITERIA, CATEGORY_TITLES, FAULTS, clamp_level, level_title
 from .emu import DeviceRegistry
-from pydantic import BaseModel
-
 from .rules import NOW
-from .tickets import CATEGORY_TITLES, Ticket, TicketService
+from .tickets import Ticket, TicketService
 
 DEBOUNCE = 3.0
 OFFLINE_DEBOUNCE = 10.0
 LOW, HIGH = 0.6, 0.85
 DAILY_LIMIT = 3
 EXPENSIVE = 1500
-
-LEVEL_TITLES = ["информация", "минор", "мажор", "критично"]
+FALSE_ALARM_DOWNGRADE = 0.6      # выше этой вероятности ложного срабатывания уровень понижаем на ступень
 
 # Известные неисправности: (семейство, сигнал) → (категория, уровень). Здесь решает таблица, без ИИ.
 KNOWN: dict[tuple[str, str], tuple[str, int]] = {
@@ -184,11 +184,11 @@ class Dispatcher:
         elif level < 3 and managed.scope == "building" and self.policy.auto_send_building \
                 and verdict["category"] in self.policy.auto_categories:
             ticket.status = "new"
-            why.append(f"{LEVEL_TITLES[level].capitalize()}, общедомовое: УК включила автоотправку для "
+            why.append(f"{level_title(level).capitalize()}, общедомовое: УК включила автоотправку для "
                        f"«{CATEGORY_TITLES[verdict['category']]}», заявка ушла без подтверждения.")
             decision = "auto"
         elif level < 3:
-            why.append(f"{LEVEL_TITLES[level].capitalize()}: заявка готова, отправит житель или УК одной кнопкой.")
+            why.append(f"{level_title(level).capitalize()}: заявка готова, отправит житель или УК одной кнопкой.")
             ticket.needs_confirmation = confirm_by
             decision = "draft"
         else:
@@ -226,7 +226,7 @@ class Dispatcher:
             return {"source": "rules", "category": category, "level": level, "confidence": TABLE_CONFIDENCE,
                     "false_alarm": None,
                     "reasons": [f"{what.capitalize()}: по таблице «{CATEGORY_TITLES[category]}», "
-                                f"уровень «{LEVEL_TITLES[level]}». ИИ не нужен."]}
+                                f"уровень «{level_title(level)}». ИИ не нужен."]}
 
         ask_category = not (forced_category or known)
         questions = {}
@@ -241,26 +241,27 @@ class Dispatcher:
                          "Критично: идёт ущерб имуществу (вода, огонь) или есть угроза людям"]}
         questions["false_alarm"] = {"type": "noul", "instructions": "Похоже ли это на ложное срабатывание датчика?"}
         why = "сочетание тревог: " + ", ".join(others) if others else "неисправности нет в таблице"
+        fallback = forced_category or (known or FALLBACK.get(managed.family, ("general", 1)))[0]
         try:
-            a = await ai.jev(self._state(managed, signal, title, held_s, others), questions)
-        except ai.AIUnavailable as exc:
+            answers = await ai.jev(self._state(managed, signal, title, held_s, others), questions)
+            verdict = _read_jev(answers, ask_category, fallback)
+        except (ai.AIUnavailable, ValueError, TypeError, KeyError) as exc:
+            # Модель может не ответить, ответить не по схеме или назвать несуществующую категорию:
+            # во всех случаях заявка всё равно должна уехать, решение берём из таблицы.
             category, level = known or FALLBACK.get(managed.family, ("general", 1))
             category = forced_category or category
+            trouble = "ИИ недоступен" if isinstance(exc, ai.AIUnavailable) else "ответ ИИ не по схеме"
             return {"source": "rules", "category": category, "level": level, "confidence": 0.9,
                     "false_alarm": None,
-                    "reasons": [f"ИИ недоступен ({exc}), решение по таблице: "
-                                f"{CATEGORY_TITLES[category]}, {LEVEL_TITLES[level]}."]}
-        probs = a["severity"]["probabilities"]          # {"0": p, "1": p, ...}
-        level = int(max(probs, key=probs.get))
-        if ask_category:
-            category, confidence = a["category"]["choice"], a["category"]["confidence"]
-        else:
-            category, confidence = forced_category or known[0], max(probs.values())
-        false_alarm = a["false_alarm"]["noul"]
-        reasons = [f"Jev ({why}): подрядчик «{CATEGORY_TITLES[category]}», уровень «{LEVEL_TITLES[level]}», "
+                    "reasons": [f"{trouble} ({exc}), решение по таблице: "
+                                f"{CATEGORY_TITLES[category]}, {level_title(level)}."]}
+        category, level, confidence, false_alarm = verdict
+        if not ask_category:
+            category = forced_category or known[0]
+        reasons = [f"Jev ({why}): подрядчик «{CATEGORY_TITLES[category]}», уровень «{level_title(level)}», "
                    f"уверенность {confidence:.0%}, ложное срабатывание {false_alarm:.0%}."]
-        if false_alarm > 0.6 and level > 0:
-            level = max(0, level - 1)
+        if false_alarm > FALSE_ALARM_DOWNGRADE and level > 0:
+            level -= 1
             reasons.append("Вероятно ложное срабатывание: понижаем уровень на одну ступень.")
         return {"source": "jev", "category": category, "level": level, "confidence": confidence,
                 "false_alarm": false_alarm, "reasons": reasons}
@@ -320,8 +321,9 @@ class Dispatcher:
         device_id = action.device_id or _rule_device(rule)
         if device_id not in self.registry.devices:
             device_id = None
-        if rule.trigger.device_id == NOW:
-            # Человек сам сообщил о проблеме или попросил мастера: датчика нет, решает тот, кто отвечает.
+        if rule.trigger.device_id == NOW or device_id is None:
+            # Человек сам сообщил о проблеме, попросил мастера или устройство правила уже удалили:
+            # датчика нет, решает тот, кто отвечает за адрес.
             inc = await self.manual(rule, action, device_id)
         else:
             managed = self.registry.get(device_id)
@@ -363,7 +365,8 @@ class Dispatcher:
             await self.tickets.attach(open_ticket, f"ещё одно сообщение: {what}", device_id, open_ticket.level,
                                       send=False)
             if rule.owner == "resident" and scope == "building":
-                self.notify("resident", f"Спасибо, УК уже знает о проблеме: «{managed.title}», заявка {open_ticket.id}.",
+                about = f"«{managed.title}»" if managed else open_ticket.title
+                self.notify("resident", f"Спасибо, УК уже знает о проблеме: {about}, заявка {open_ticket.id}.",
                             "info", extra={"ticket_id": open_ticket.id})
             return self._decide(inc, "merged", ticket=open_ticket)
 
@@ -379,6 +382,36 @@ class Dispatcher:
             self.notify("resident", f"Передали в УК: «{title}». Консьерж отправит мастера.", "info",
                         extra={"ticket_id": ticket.id})
         return self._decide(inc, "draft", ticket=ticket)
+
+
+def _unit(value: Any, default: float = 0.0) -> float:
+    """Вероятность из ответа модели: число в [0, 1], что бы там ни пришло."""
+    try:
+        return max(0.0, min(float(value), 1.0))
+    except (TypeError, ValueError):
+        return default
+
+
+def _read_jev(answers: Any, ask_category: bool, fallback_category: str) -> tuple[str, int, float, float]:
+    """Разбор ответа Jev в (категория, уровень, уверенность, ложное срабатывание).
+
+    Ответ модели — внешние данные: уровень раньше шёл прямо в индекс списка, а категория — в ключ
+    справочника, поэтому «4» или выдуманный подрядчик роняли обработку инцидента целиком.
+    """
+    if not isinstance(answers, dict):
+        raise TypeError(f"ожидался объект ответов, пришло {type(answers).__name__}")
+    probabilities = (answers.get("severity") or {}).get("probabilities")
+    if not isinstance(probabilities, dict) or not probabilities:
+        raise ValueError("в ответе нет вероятностей уровня")
+    best = max(probabilities, key=lambda k: _unit(probabilities.get(k)))
+    level = clamp_level(best)
+    confidence = max(_unit(v) for v in probabilities.values())
+    category = fallback_category
+    if ask_category:
+        choice = (answers.get("category") or {}).get("choice")
+        category = choice if choice in CATEGORY_TITLES else fallback_category
+        confidence = _unit((answers.get("category") or {}).get("confidence"), confidence)
+    return category, level, confidence, _unit((answers.get("false_alarm") or {}).get("noul"))
 
 
 def _rule_device(rule) -> str | None:

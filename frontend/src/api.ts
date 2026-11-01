@@ -85,7 +85,8 @@ export type Rule = {
   owner: 'resident' | 'uk'
   priority: number
   enabled: boolean
-  status: 'draft' | 'checked' | 'tested' | 'active'
+  /** Черновик → прогнано на эмуляторе → включено. Совпадает со схемой бэкенда (backend/app/rules.py). */
+  status: 'draft' | 'tested' | 'active'
   cooldown_s: number
   trigger: Trigger
   conditions: Condition[]
@@ -126,12 +127,11 @@ export type BusEvent = {
 }
 
 export type IncidentVerdict = {
+  /** `rules` — решение по таблице неисправностей, `jev` — вердикт модели. */
   source: string
   category: string
   level: number
   confidence: number
-  damage: number | null
-  people: number | null
   false_alarm: number | null
   reasons: string[]
 }
@@ -241,20 +241,28 @@ function readableDetail(detail: unknown): string {
 
 /** Запрос, который завис на прокси, не должен держать экран пустым бесконечно. */
 const REQUEST_TIMEOUT_MS = 10_000
+/**
+ * Долгие запросы: ответ модели упирается в её собственный таймаут (40 с на бэкенде плюс
+ * рукопожатие с OpenRouter), а прогон и Gherkin гоняют дом на копии. Десяти секунд им мало.
+ */
+const SLOW_TIMEOUT_MS = 60_000
 /** HTML-страница ошибки прокси (502) целиком в тосте не нужна. */
 const DETAIL_MAX = 240
 
-async function json<T>(url: string, init?: RequestInit): Promise<T> {
+type Options = RequestInit & { timeoutMs?: number }
+
+async function json<T>(url: string, init?: Options): Promise<T> {
+  const { timeoutMs = REQUEST_TIMEOUT_MS, ...rest } = init ?? {}
   let res: Response
   try {
     res = await fetch(url, {
-      headers: { 'Content-Type': 'application/json' },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      ...init,
+      ...rest,
+      headers: { 'Content-Type': 'application/json', ...rest.headers },
+      signal: AbortSignal.timeout(timeoutMs),
     })
   } catch (e) {
     const name = (e as Error).name
-    if (name === 'TimeoutError') throw new Error('Сервер не ответил за 10 секунд')
+    if (name === 'TimeoutError') throw new Error(`Сервер не ответил за ${Math.round(timeoutMs / 1000)} секунд`)
     if (name === 'AbortError') throw e
     throw new Error('Нет связи с сервером')
   }
@@ -274,6 +282,7 @@ async function json<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 const body = (data: unknown) => ({ body: JSON.stringify(data) })
+const slow = { timeoutMs: SLOW_TIMEOUT_MS }
 const enc = encodeURIComponent
 
 export type Role = 'resident' | 'uk'
@@ -302,6 +311,53 @@ export type Confirmed = {
 }
 
 export type Policy = { auto_send_building: boolean; auto_categories: string[]; daily_limit: number }
+
+/** Состояние моста в Ujin OS: что привязано к стенду и чем закончилась последняя публикация. */
+export type UjinStatus = {
+  live: boolean
+  /** Есть `secrets/ujin.json`: без него публиковать некуда. */
+  configured: boolean
+  base_url: string
+  apartment_id: string
+  bound: { id: string; title: string; sn: string; ext: string }[]
+  published: number
+  batches: number
+  errors: number
+  last_ok: number | null
+  last_error: string | null
+  last_response: unknown
+}
+
+/** Правило в формате autoscripts платформы. `unsupported` — что платформа выразить не умеет. */
+export type UjinExport = {
+  rule_id: string
+  title: string
+  enabled: boolean
+  scenario_type: string
+  condition: string
+  set_signal: string
+  unsupported: string[]
+}
+
+export type UjinPush = {
+  ok: boolean
+  live: boolean
+  payload: Omit<UjinExport, 'rule_id' | 'enabled'>
+  scenario_id?: number | null
+  activated?: boolean
+  detail?: string
+  response?: unknown
+}
+
+export type Health = {
+  ok: boolean
+  tick: number
+  devices: number
+  rules: number
+  ujin_live: boolean
+  ai: boolean
+  llm_model: string
+}
 
 export type GherkinStep = { keyword: string; text: string; line: number; status: 'passed' | 'failed' | 'undefined' | 'skipped'; detail: string }
 export type GherkinReport = {
@@ -337,8 +393,9 @@ export const api = {
   runRule: (id: string) => json(`/api/rules/${enc(id)}/run`, { method: 'POST' }),
 
   compile: (text: string, role: Role, previous?: string) =>
-    json<Compiled>('/api/nl/compile', { method: 'POST', ...body({ text, role, previous }) }),
-  confirm: (rule: Rule, role: Role) => json<Confirmed>('/api/nl/confirm', { method: 'POST', ...body({ rule, role }) }),
+    json<Compiled>('/api/nl/compile', { method: 'POST', ...body({ text, role, previous }), ...slow }),
+  confirm: (rule: Rule, role: Role) =>
+    json<Confirmed>('/api/nl/confirm', { method: 'POST', ...body({ rule, role }), ...slow }),
 
   notifications: (target?: string) =>
     json<Notification[]>(`/api/notifications?limit=100${target ? `&target=${enc(target)}` : ''}`),
@@ -352,12 +409,21 @@ export const api = {
   contractors: () => json<Contractor[]>('/api/contractors'),
   dictionaries: () => json<Dictionaries>('/api/dictionaries'),
 
-  simulate: (rule: Rule, ticks = 15) =>
-    json<SimulateReport>('/api/simulate', { method: 'POST', ...body({ rule, ticks }) }),
+  /** `offline` — список устройств, которым в прогоне обрывают связь: проверка поведения при сбое. */
+  simulate: (rule: Rule, ticks = 15, offline: string[] = []) =>
+    json<SimulateReport>('/api/simulate', { method: 'POST', ...body({ rule, ticks, offline }), ...slow }),
   policy: () => json<Policy>('/api/policy'),
   setPolicy: (policy: Policy) => json<Policy>('/api/policy', { method: 'PUT', ...body(policy) }),
   explainRule: (id: string) => json<{ text: string }>(`/api/rules/${enc(id)}/explain`),
-  gherkin: (rule: Rule) => json<GherkinReport>('/api/gherkin/run', { method: 'POST', ...body({ rule }) }),
+  gherkin: (rule: Rule) => json<GherkinReport>('/api/gherkin/run', { method: 'POST', ...body({ rule }), ...slow }),
+
+  health: () => json<Health>('/api/health'),
+  ujinStatus: () => json<UjinStatus>('/api/ujin/status'),
+  ujinLive: (live: boolean) => json<UjinStatus>('/api/ujin/live', { method: 'POST', ...body({ live }) }),
+  ujinExport: () => json<UjinExport[]>('/api/ujin/export'),
+  ujinPush: (ruleId: string) =>
+    json<UjinPush>(`/api/ujin/rules/${enc(ruleId)}/push`, { method: 'POST', ...slow }),
+  ujinScripts: () => json<unknown>('/api/ujin/scripts', slow),
 }
 
 const RECONNECT_MIN_MS = 1000

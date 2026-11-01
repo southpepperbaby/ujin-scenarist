@@ -18,8 +18,8 @@ import httpx
 from pydantic import BaseModel, Field
 
 from . import config
-from .dictionaries import CATEGORY_TITLES  # noqa: F401  отдаётся дальше как tickets.CATEGORY_TITLES
 from .bus import EventBus
+from .dictionaries import level_title
 
 Category = Literal["plumbing", "electric", "access", "lift", "fire", "heating", "general"]
 
@@ -72,7 +72,7 @@ class Ticket(BaseModel):
     created: float = Field(default_factory=time.time)
     status: Status = "draft"
     category: Category
-    level: int                              # 0 инфо, 1 минор, 2 мажор, 3 критично
+    level: int = Field(ge=0, le=3)          # 0 информация, 1 минор, 2 мажор, 3 критично
     title: str
     description: str
     address: str = "ЖК «Северный», корп. 1, кв. 2806"
@@ -214,7 +214,9 @@ class TicketService:
     async def transition(self, ticket_id: str, status: Status, actor: str, note: str = "") -> Ticket:
         t = self.tickets[ticket_id]
         if status not in TRANSITIONS[t.status]:
-            raise ValueError(f"нельзя перевести заявку из «{STATUS_TITLES[t.status]}» в «{STATUS_TITLES[status]}»")
+            # Статус приходит и от подрядчика по webhook: неизвестное имя не должно ронять обработчик.
+            want = STATUS_TITLES.get(status, status)
+            raise ValueError(f"нельзя перевести заявку из «{STATUS_TITLES[t.status]}» в «{want}»")
         t.status = status
         t.history.append(HistoryItem(status=status, actor=actor, note=note))
         if status == "new":
@@ -235,7 +237,9 @@ class TicketService:
     # ---------- доставка ----------
 
     async def _deliver(self, t: Ticket) -> None:
-        c = self.contractors[t.contractor_id]
+        # Подрядчика могли удалить из пула между созданием черновика и отправкой: берём по категории.
+        c = self.contractors.get(t.contractor_id or "") or self.contractor_for(t.category)
+        t.contractor_id, t.contractor_name = c.id, c.name
         t.sla_due = time.time() + c.sla_minutes * 60
         results = []
         if c.channel == "webhook" and self.network:
@@ -250,7 +254,7 @@ class TicketService:
         chat = c.telegram_chat_id or config.TELEGRAM_CHAT_ID
         if not (config.TELEGRAM_BOT_TOKEN and chat):
             return {"channel": "telegram", "ok": False, "detail": "бот не настроен"}
-        level = ["инфо", "минор", "мажор", "КРИТИЧНО"][t.level]
+        level = level_title(t.level).upper() if t.level >= 3 else level_title(t.level)
         text = (f"<b>Заявка {t.id}</b> · {level}\n{t.title}\n{t.address}\n\n{t.description}\n\n"
                 f"Срок реакции по договору: {c.sla_minutes} мин.")
         try:

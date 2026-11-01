@@ -41,6 +41,22 @@ CATEGORY_CRITERIA = {
 OP_SIGNS = {"eq": "=", "ne": "≠", "gt": ">", "gte": "≥", "lt": "<", "lte": "≤"}
 OP_TITLES = {**OP_SIGNS, "changed": "изменился"}
 
+# Шкала серьёзности: один источник для вердикта, заявки и сообщения подрядчику.
+LEVEL_TITLES = ["информация", "минор", "мажор", "критично"]
+MAX_LEVEL = len(LEVEL_TITLES) - 1
+
+
+def level_title(level: int) -> str:
+    """Название уровня. Уровень приходит в том числе от модели, поэтому зажимаем в шкалу."""
+    return LEVEL_TITLES[clamp_level(level)]
+
+
+def clamp_level(level: Any) -> int:
+    try:
+        return max(0, min(int(level), MAX_LEVEL))
+    except (TypeError, ValueError):
+        return 0
+
 # Какие значения сигналов считаются неисправностью: семейство → [(сигнал, значение, название)].
 # Свои типы из конструктора дописывают сюда свои неисправности (DeviceTypes._register): так их видят
 # автодиспетчер, сводка «есть ли авария» и поле alarms у устройства.

@@ -132,18 +132,65 @@ class UjinBridge:
         return to_ujin_autoscript(rule, serials, prefix=CLS + "_")
 
     def push_rule(self, rule: Rule) -> dict:
-        """Отправить правило в autoscripts платформы (то, что платформа умеет выразить)."""
+        """Отправить правило в autoscripts платформы и включить его.
+
+        Платформа создаёт сценарий выключенным: без `autoscripts/activate` он лежит мёртвым грузом
+        (SCENARIOS.md §1). Поэтому за `edit` всегда идёт `activate` по id из ответа.
+        """
         payload = self.export(rule)
+        if not self.ust:
+            return {"ok": False, "payload": payload, "live": self.live,
+                    "detail": "нет токена резидента (secrets/ujin.json): сценарии живут в кабинете жителя"}
         if not payload["set_signal"]:
-            return {"ok": False, "payload": payload, "detail": "у правила нет команд устройствам стенда"}
+            return {"ok": False, "payload": payload, "live": self.live,
+                    "detail": "у правила нет команд устройствам стенда, отправлять нечего"}
         client = self.client()
-        resp: Any = client.autoscripts_edit(self.ust, 0, "trigger", condition=payload["condition"],
-                                            set_signal=payload["set_signal"], title=payload["title"])
-        return {"ok": isinstance(resp, dict) and resp.get("error") in (0, "0"), "payload": payload,
-                "response": _scrub(resp), "live": self.live}
+        try:
+            resp: Any = client.autoscripts_edit(self.ust, 0, "trigger", condition=payload["condition"],
+                                                set_signal=payload["set_signal"], title=payload["title"])
+        except Exception as exc:  # noqa: BLE001 — сбой стенда возвращаем ответом, а не 500
+            return {"ok": False, "payload": payload, "live": self.live, "detail": f"стенд не ответил: {exc}"}
+        ok = isinstance(resp, dict) and resp.get("error") in (0, "0", None)
+        out = {"ok": ok, "payload": payload, "response": _scrub(resp), "live": self.live,
+               "scenario_id": _scenario_id(resp), "activated": False}
+        if not ok:
+            out["detail"] = str(resp.get("message") if isinstance(resp, dict) else resp)[:300]
+            return out
+        if out["scenario_id"] is None:
+            out["detail"] = ("сценарий создан, но платформа не вернула id — включите его в приложении жителя"
+                             if self.live else "сухой прогон: включения не было, включите live и повторите")
+            return out
+        try:
+            activated = client.autoscripts_activate(self.ust, out["scenario_id"])
+            out["activated"] = isinstance(activated, dict) and activated.get("error") in (0, "0", None)
+            out["activate_response"] = _scrub(activated)
+        except Exception as exc:  # noqa: BLE001
+            out["detail"] = f"сценарий создан, но включить не удалось: {exc}"
+        return out
 
     def platform_scripts(self) -> dict:
-        return _scrub(self.client().autoscripts_list(self.ust))
+        if not self.ust:
+            return {"error": 1, "message": "нет токена резидента: список сценариев берётся его токеном"}
+        try:
+            return _scrub(self.client().autoscripts_list(self.ust))
+        except Exception as exc:  # noqa: BLE001
+            return {"error": 1, "message": f"стенд не ответил: {exc}"}
+
+
+def _scenario_id(resp: Any) -> int | None:
+    """id созданного сценария: платформа кладёт его то в корень ответа, то в `data`."""
+    if not isinstance(resp, dict):
+        return None
+    for source in (resp, resp.get("data") if isinstance(resp.get("data"), dict) else {}):
+        for key in ("id", "scenario_id", "scenarioId"):
+            value = source.get(key)
+            if isinstance(value, bool):
+                continue
+            if isinstance(value, int) and value > 0:
+                return value
+            if isinstance(value, str) and value.isdigit() and int(value) > 0:
+                return int(value)
+    return None
 
 
 def _scrub(resp: Any) -> Any:

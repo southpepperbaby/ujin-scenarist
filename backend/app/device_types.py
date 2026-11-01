@@ -99,7 +99,6 @@ class Threshold(BaseModel):
 
 Behavior = Annotated[Union[Drift, Effect, Threshold], Field(discriminator="type")]
 OPS = {"gt": lambda a, b: a > b, "gte": lambda a, b: a >= b, "lt": lambda a, b: a < b, "lte": lambda a, b: a <= b}
-OP_WORDS = OP_SIGNS
 
 
 class DeviceType(BaseModel):
@@ -177,7 +176,7 @@ class DeviceType(BaseModel):
                 out.append(f"Команда {when}: {delay} «{by[b.target].title}» = {then}.")
             else:
                 tail = f", иначе {val(b.target, b.else_value)}" if b.else_value is not None else ""
-                out.append(f"Если «{by[b.source].title}» {OP_WORDS[b.op]} {val(b.source, b.limit)}: "
+                out.append(f"Если «{by[b.source].title}» {OP_SIGNS[b.op]} {val(b.source, b.limit)}: "
                            f"«{by[b.target].title}» = {val(b.target, b.value)}{tail}.")
         return out
 

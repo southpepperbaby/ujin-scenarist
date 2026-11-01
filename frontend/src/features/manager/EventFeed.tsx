@@ -42,9 +42,12 @@ function label(event: BusEvent, byId: Map<string, Device>): string {
   return event.message ?? `${device?.title ?? event.device_id ?? ''} ${event.action ?? ''}`.trim()
 }
 
-/** Служебное, что человеку в ленте не нужно: лог эмулятора, обмен с Ujin, «правило запущено» до итога. */
+/**
+ * Служебное, что человеку в ленте не нужно: лог эмулятора и «правило запущено» до итога.
+ * Обмен с платформой (`ujin`) показываем: это доказательство, что сигналы доехали на стенд.
+ */
 function noise(event: BusEvent): boolean {
-  return event.kind === 'log' || event.kind === 'ujin' || (event.kind === 'rule' && event.phase === 'running')
+  return event.kind === 'log' || (event.kind === 'rule' && event.phase === 'running')
 }
 
 /** Склеивает события, идущие подряд, в цепочки; у инцидента в цепочке остаётся только последняя фаза. */

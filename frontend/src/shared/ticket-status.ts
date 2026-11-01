@@ -13,10 +13,9 @@ export const TICKET_STATUS: Record<TicketStatus, Style> = {
   cancelled: { label: 'отменена', className: 'bg-field text-ink-mute' },
 }
 
-/** Жизненный цикл правила: черновик → линтер → прогон на эмуляторе → включено. */
+/** Жизненный цикл правила: черновик → прогон на эмуляторе → включено. */
 export const RULE_STATUS: Record<Rule['status'], Style> = {
   draft: { label: 'Черновик', className: 'bg-field text-ink-mute' },
-  checked: { label: 'Проверено линтером', className: 'bg-sev-info-soft text-sev-info' },
   tested: { label: 'Прогнано на эмуляторе', className: 'bg-accent-soft text-accent' },
   active: { label: 'Включено', className: 'bg-ok-soft text-ok' },
 }
